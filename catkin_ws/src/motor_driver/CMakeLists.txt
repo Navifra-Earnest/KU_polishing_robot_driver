@@ -10,12 +10,16 @@ endif()
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
+  geometry_msgs
+  nav_msgs
+  tf2
+  tf2_ros
 )
 find_package(Threads REQUIRED)
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs
+  CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs tf2 tf2_ros
 )
 
 include_directories(
@@ -34,7 +38,15 @@ target_link_libraries(motor_driver_node
   Threads::Threads
 )
 
-install(TARGETS motor_driver_node
+add_executable(base_controller_node
+  src/base_controller_node.cpp
+)
+
+target_link_libraries(base_controller_node
+  ${catkin_LIBRARIES}
+)
+
+install(TARGETS motor_driver_node base_controller_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

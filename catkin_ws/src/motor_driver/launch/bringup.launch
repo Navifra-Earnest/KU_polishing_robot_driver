@@ -1,0 +1,18 @@
+<launch>
+  <!-- =========================================================================
+       턴키 브링업: 저수준 드라이버(motor_driver_node) + 표준 인터페이스(base_controller)
+         상위(nav 등)는 /cmd_vel 로 제어, /odom 으로 상태 수신.
+       ========================================================================= -->
+  <arg name="motor_params" default="$(find motor_driver)/config/motor_driver.yaml"/>
+  <arg name="base_params"  default="$(find motor_driver)/config/base_controller.yaml"/>
+
+  <!-- 저수준: CAN/CiA402 모터 드라이버 -->
+  <node pkg="motor_driver" type="motor_driver_node" name="motor_driver_node" output="screen">
+    <rosparam command="load" file="$(arg motor_params)"/>
+  </node>
+
+  <!-- 표준 인터페이스: /cmd_vel -> /motor/cmd, /motor/velocity -> /odom (+TF) -->
+  <node pkg="motor_driver" type="base_controller_node" name="base_controller" output="screen">
+    <rosparam command="load" file="$(arg base_params)"/>
+  </node>
+</launch>

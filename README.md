@@ -45,17 +45,37 @@ Polishing/
         ├── CMakeLists.txt
         ├── include/motor_driver/*.hpp
         ├── src/
-        │   ├── can_interface.cpp      # SocketCAN RAW 래퍼 (ROS 비의존)
-        │   ├── motor_controller.cpp   # Kinco CiA402 상태머신/PDO/속도제어 (ROS 비의존)
-        │   └── motor_driver_node.cpp  # roscpp 노드 + 표준 토픽 + 안전 인터록
-        ├── launch/motor_driver.launch
-        └── config/motor_driver.yaml
+        │   ├── can_interface.cpp        # SocketCAN RAW 래퍼 (ROS 비의존)
+        │   ├── motor_controller.cpp     # Kinco CiA402 상태머신/PDO/속도제어 (ROS 비의존)
+        │   ├── motor_driver_node.cpp    # 저수준 노드: /motor/cmd·/motor/velocity·/motor/status …
+        │   └── base_controller_node.cpp # 상위 표준: /cmd_vel↔/odom (차동구동, TF)
+        ├── scripts/teleop_keyboard.py   # 키보드 텔레옵
+        ├── launch/
+        │   ├── motor_driver.launch      # 저수준 드라이버만
+        │   └── bringup.launch           # 드라이버 + base_controller (턴키)
+        └── config/
+            ├── motor_driver.yaml
+            └── base_controller.yaml     # 바퀴 반경/윤거/감속비 등 (실제값 설정 필요)
 ```
 
 ---
 
 ## 2. 토픽 인터페이스 (표준 메시지)
 
+두 계층으로 구성된다:
+- **상위 표준 인터페이스** (`base_controller` 노드) — 이동로봇 표준. 상위(nav 등)는 이것만 쓰면 된다.
+- **저수준 인터페이스** (`motor_driver_node`) — 바퀴별 rpm 직접 제어. 디버그·직접제어용.
+
+### 상위 표준 인터페이스 (권장, `base_controller`)
+| 방향 | 토픽 | 타입 | 설명 |
+|------|------|------|------|
+| 입력 | `/cmd_vel` | `geometry_msgs/Twist` | 선속도 `linear.x` [m/s] + 각속도 `angular.z` [rad/s] |
+| 출력 | `/odom` | `nav_msgs/Odometry` | 추정 위치·자세·속도 (+ TF `odom`→`base_link`) |
+
+> `base_controller` 는 `/cmd_vel` → 역기구학 → `/motor/cmd`(모터축 rpm), `/motor/velocity` → 적분 → `/odom` 변환.
+> 물리 파라미터(`wheel_radius`·`wheel_separation`·`gear_ratio`)를 `config/base_controller.yaml` 에 **실제 로봇 값으로 설정**해야 정확하다.
+
+### 저수준 인터페이스 (`motor_driver_node`)
 | 방향 | 토픽 | 타입 | 설명 |
 |------|------|------|------|
 | 입력 | `/motor/cmd` | `std_msgs/Float32MultiArray` | `data=[motor1_rpm, motor2_rpm]` 목표 속도 |
@@ -132,14 +152,28 @@ rostopic pub -1 /motor_brakeon_feedback std_msgs/Bool "data: false"
 ```
 CAN 프레임 직접 확인: `candump can0`
 
+### 표준 인터페이스(cmd_vel/odom) 테스트
+`bringup.launch` 로 드라이버 + `base_controller` 를 함께 띄운 경우:
+```bash
+# 전진 0.3 m/s (base_controller 가 역기구학으로 /motor/cmd 발행)
+rostopic pub -r 10 /cmd_vel geometry_msgs/Twist "{linear: {x: 0.3}, angular: {z: 0.0}}"
+# 제자리 좌회전 0.5 rad/s
+rostopic pub -r 10 /cmd_vel geometry_msgs/Twist "{linear: {x: 0.0}, angular: {z: 0.5}}"
+
+rostopic echo /odom            # 위치·자세·속도
+rosrun tf tf_echo odom base_link   # TF 확인
+```
+> ⚠️ `config/base_controller.yaml` 의 `wheel_radius`·`wheel_separation`·`gear_ratio` 를
+> **실제 로봇 값으로 설정**해야 `/cmd_vel` 스케일과 `/odom` 이 정확하다 (미설정 시 노드가 경고).
+
 ---
 
 ## 4. 로봇 PC — 도커 없이 로컬 실행 (`~/navifra`)
 
-전제: 로봇 PC 에 **ROS1 Noetic + can-utils** (개발기와 **동일 아키텍처 x86_64**).
+전제: 로봇 PC 에 **ROS1 Noetic + tf2-ros + can-utils** (개발기와 **동일 아키텍처 x86_64**).
 ```bash
 # (Noetic 미설치 시)
-# sudo apt install ros-noetic-ros-base can-utils
+# sudo apt install ros-noetic-ros-base ros-noetic-tf2-ros can-utils
 ```
 > ⚠️ install 은 `/opt/ros/noetic/lib/*` 에 **동적 링크**되므로 자기완결 번들이 아니다.
 > 로봇에 Noetic 이 설치돼 있어야 하고, 개발기와 ROS 버전·아키텍처가 일치해야 한다.
@@ -214,13 +248,15 @@ bash ~/navifra/run_robot.sh
 
 ### (4) 키보드 조종 — 노트북에서 SSH
 키보드 teleop 은 **키를 누르는 TTY** 가 필요해서 systemd 자동실행 대상이 아니다.
-노트북에서 SSH 로 접속한 세션에서 실행한다. (드라이버 노드가 먼저 떠 있어야 함 — teleop 은 `/motor/cmd` 만 발행)
+노트북에서 SSH 로 접속한 세션에서 실행한다.
+teleop 은 `/cmd_vel`(Twist) 만 발행하므로 **base_controller 가 떠 있어야** 실제로 움직인다
+(`bringup.launch` / `run_robot.sh` 는 base_controller 포함).
 
 **방법 A — 접속 후 직접 실행** (대화형 셸이라 TTY 있음):
 ```bash
 ssh robot@<robot_ip>
 ~/navifra/teleop.sh                       # 경로 앞 ~ 필수 (=/home/<user>/navifra)
-# 속도/좌우 지정:  ~/navifra/teleop.sh _linear_rpm:=200 _swap_lr:=true
+# 속도 지정:  ~/navifra/teleop.sh _linear_speed:=0.3 _angular_speed:=0.8   # [m/s],[rad/s]
 ```
 
 **방법 B — 노트북에서 원터치** (한 줄 원격 실행이므로 `ssh -t` 로 TTY 할당):

@@ -43,7 +43,7 @@ Environment=ROS_IP=127.0.0.1
 
 # .bashrc 에 의존하지 않고 여기서 명시적으로 source (systemd 는 .bashrc 를 안 읽음).
 # roslaunch 는 master 가 없으면 roscore 를 자동 기동한다.
-ExecStart=/bin/bash -c 'source /opt/ros/noetic/setup.bash && source /home/<USER>/navifra/install/setup.bash && exec roslaunch motor_driver motor_driver.launch'
+ExecStart=/bin/bash -c 'source /opt/ros/noetic/setup.bash && source /home/<USER>/navifra/install/setup.bash && exec roslaunch motor_driver bringup.launch'
 
 # can0 가 아직 안 올라온 타이밍 등 초기 실패 시 재시도
 Restart=on-failure

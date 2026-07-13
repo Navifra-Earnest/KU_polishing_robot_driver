@@ -22,7 +22,7 @@ INSTALL_DIR="${INSTALL_DIR:-$HOME/navifra/install}"
 # --- ROS/워크스페이스 환경 (이미 .bashrc 에서 source 됐어도 무해) ---
 if [ ! -f /opt/ros/noetic/setup.bash ]; then
     echo "[run_robot] ERROR: ROS1 Noetic 미설치 (/opt/ros/noetic 없음)." >&2
-    echo "            sudo apt install ros-noetic-ros-base can-utils" >&2
+    echo "            sudo apt install ros-noetic-ros-base ros-noetic-tf2-ros can-utils" >&2
     exit 1
 fi
 source /opt/ros/noetic/setup.bash
@@ -47,4 +47,6 @@ fi
 echo "[run_robot] ROS_MASTER_URI=$ROS_MASTER_URI  INSTALL=${INSTALL_DIR}  CAN=${CAN_DEV}"
 
 # --- 실행 ---
-exec roslaunch motor_driver motor_driver.launch
+# bringup.launch = 저수준 드라이버 + base_controller(cmd_vel/odom).
+# 저수준만 원하면 motor_driver.launch 로 바꾼다.
+exec roslaunch motor_driver bringup.launch

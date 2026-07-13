@@ -11,7 +11,7 @@
 #   전제: motor_driver_node 가 이미 실행 중(systemd 등). teleop 은 /motor/cmd 만 발행한다.
 #
 # 인자는 그대로 rosrun 에 전달:
-#   bash ~/navifra/teleop.sh _linear_rpm:=200 _angular_rpm:=150 _swap_lr:=true
+#   bash ~/navifra/teleop.sh _linear_speed:=0.3 _angular_speed:=0.8   # [m/s], [rad/s]
 # =============================================================================
 set -e
 

@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-format \
     python3-catkin-tools \
     python3-rosdep \
+    ros-noetic-tf2-ros \
     can-utils \
     iproute2 \
     sudo \

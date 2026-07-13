@@ -7,7 +7,7 @@
 # 사용:
 #   ./teleop_ssh.sh <user>@<robot_ip> [teleop 인자...]
 #   예) ./teleop_ssh.sh robot@192.168.0.50
-#       ./teleop_ssh.sh robot@192.168.0.50 _linear_rpm:=200 _swap_lr:=true
+#       ./teleop_ssh.sh robot@192.168.0.50 _linear_speed:=0.3 _angular_speed:=0.8
 # =============================================================================
 set -e
 

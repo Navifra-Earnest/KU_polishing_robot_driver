@@ -1,0 +1,18 @@
+# base_controller (차동구동 cmd_vel <-> odom) 파라미터
+# ⚠️ 아래 물리값은 현재 "가정값" 이다. 실측으로 확정되면 갱신할 것.
+
+wheel_radius: 0.0825         # [m] 바퀴 반경 = 지름 0.165m / 2  
+wheel_separation: 0.65      # [m] 좌/우 바퀴 간격(윤거)        
+gear_ratio: 9.0            # 모터축:바퀴 감속비 9:1  (가정)
+                           #   /motor/cmd 는 모터축 rpm 이므로 필수.
+                           #   (모터 1회전 = 바퀴 1/9 회전)
+
+max_linear_vel: 0.0        # [m/s]  0=제한 없음
+max_angular_vel: 0.0       # [rad/s] 0=제한 없음
+control_rate: 50.0         # [Hz] /motor/cmd 재발행 주기 (cmd_timeout 안 걸리게 유지)
+cmd_vel_timeout: 0.5       # [s] 이 시간 동안 /cmd_vel 미수신 시 0속도 정지
+
+odom_frame: "odom"
+base_frame: "base_link"
+publish_tf: true           # odom -> base_link TF 발행 여부
+swap_lr: false             # 좌/우 바퀴가 반대로 매핑되면 true (하드웨어에서 검증)
