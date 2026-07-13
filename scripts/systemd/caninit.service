@@ -1,0 +1,13 @@
+[Unit]
+Description=CAN Initialization
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/caninit_script.sh
+RemainAfterExit=yes
+User=root
+Group=root
+[Install]
+WantedBy=multi-user.target
+

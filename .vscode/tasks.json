@@ -1,0 +1,93 @@
+{
+    // =========================================================================
+    // motor_driver 빌드 태스크 (ROS1 Noetic / catkin)
+    //   워크스페이스는 저장소 루트가 아니라 catkin_ws/ 이므로 cwd 를 맞춘다.
+    //   기본 빌드: Ctrl+Shift+B → "ROS: build (install)"
+    // =========================================================================
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "ROS: build (install)",
+            "detail": "catkin_make install (Release) — 기본 빌드",
+            "type": "shell",
+            "command": "source /opt/ros/noetic/setup.bash && catkin_make install -DCMAKE_BUILD_TYPE=Release",
+            "options": {
+                "cwd": "${workspaceFolder}/catkin_ws"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "ROS: build (debug)",
+            "detail": "catkin_make install (Debug, -g) — gdb 디버깅용",
+            "type": "shell",
+            "command": "source /opt/ros/noetic/setup.bash && catkin_make install -DCMAKE_BUILD_TYPE=Debug",
+            "options": {
+                "cwd": "${workspaceFolder}/catkin_ws"
+            },
+            "group": "build",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "ROS: build (devel only)",
+            "detail": "catkin_make (install 스페이스 없이 devel 만) — 빠른 반복 빌드",
+            "type": "shell",
+            "command": "source /opt/ros/noetic/setup.bash && catkin_make",
+            "options": {
+                "cwd": "${workspaceFolder}/catkin_ws"
+            },
+            "group": "build",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "ROS: clean",
+            "detail": "build/ devel/ install/ 삭제 (클린 빌드 전)",
+            "type": "shell",
+            "command": "rm -rf build devel install",
+            "options": {
+                "cwd": "${workspaceFolder}/catkin_ws"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "ROS: rebuild (clean + install)",
+            "detail": "clean 후 install 빌드",
+            "type": "shell",
+            "command": "source /opt/ros/noetic/setup.bash && catkin_make install -DCMAKE_BUILD_TYPE=Release",
+            "options": {
+                "cwd": "${workspaceFolder}/catkin_ws"
+            },
+            "dependsOn": "ROS: clean",
+            "dependsOrder": "sequence",
+            "group": "build",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "ROS: rosdep install",
+            "detail": "src 의존성 설치 (rosdep)",
+            "type": "shell",
+            "command": "source /opt/ros/noetic/setup.bash && rosdep install --from-paths src --ignore-src -y",
+            "options": {
+                "cwd": "${workspaceFolder}/catkin_ws"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "ROS: run motor_driver.launch",
+            "detail": "install 을 source 하여 노드 실행 (roscore 자동 기동)",
+            "type": "shell",
+            "command": "source /opt/ros/noetic/setup.bash && source install/setup.bash && roslaunch motor_driver motor_driver.launch",
+            "options": {
+                "cwd": "${workspaceFolder}/catkin_ws"
+            },
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}

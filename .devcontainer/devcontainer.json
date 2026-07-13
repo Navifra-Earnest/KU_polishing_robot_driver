@@ -1,0 +1,51 @@
+{
+  // =========================================================================
+  // Polishing motor_driver 개발 컨테이너 (ROS1 Noetic)
+  //   참고: ~/git_ws/namyang/core4_main/.devcontainer (사내 컨벤션)
+  //   - 소스를 bind-mount 하여 호스트 편집이 컨테이너에 즉시 반영
+  //   - SocketCAN(can0) 접근을 위해 privileged + host network
+  //   - 빌드는 .vscode/tasks.json 의 "ROS: build (install)" (Ctrl+Shift+B)
+  // =========================================================================
+  "name": "Polishing motor_driver (ROS1 Noetic)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "USERNAME": "navifra",
+      "USER_UID": "1000",
+      "USER_GID": "1000"
+    }
+  },
+  "remoteUser": "navifra",
+
+  "workspaceFolder": "/workspaces/Polishing",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/Polishing,type=bind",
+
+  "runArgs": [
+    "--init",
+    "--privileged",          // SocketCAN(can0) up/설정 및 /dev 장치 접근 (NET_ADMIN 포함)
+    "--network=host",        // roscore(11311)/토픽 + CAN 을 호스트와 공유
+    "--hostname=polishing",
+    "--env", "TZ=Asia/Seoul"
+  ],
+
+  "containerEnv": {
+    "ROS_MASTER_URI": "http://localhost:11311",
+    "ROS_IP": "127.0.0.1"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-iot.vscode-ros",
+        "twxs.cmake",
+        "ms-vscode.cmake-tools",
+        "xaver.clang-format",
+        "ms-python.python"
+      ]
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/postcreate.sh"
+}

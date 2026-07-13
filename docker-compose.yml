@@ -1,0 +1,32 @@
+# =============================================================================
+# 개발기(내 PC) 테스트용 docker-compose (ROS1 Noetic)
+#   로봇 PC 는 도커 없이 로컬 실행하므로, 이 compose 는 "내 PC 테스트" 전용이다.
+#   host network 로 컨테이너의 roscore/토픽을 호스트/다른 컨테이너와 공유한다.
+# =============================================================================
+services:
+  motor_driver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: motor_driver:noetic
+    container_name: motor_driver
+
+    network_mode: "host"     # roscore(11311)/토픽을 호스트와 공유
+
+    cap_add:
+      - NET_ADMIN            # 컨테이너 내 'ip link set canX ...' 허용
+    devices:
+      - /dev:/dev            # USB-CAN 등 장치 접근
+    # 위로 부족하면:
+    # privileged: true
+
+    environment:
+      - ROS_MASTER_URI=${ROS_MASTER_URI:-http://localhost:11311}
+      - ROS_IP=${ROS_IP:-127.0.0.1}          # 다른 머신 연동 시 실제 호스트 IP 로
+      - CAN_AUTO_UP=${CAN_AUTO_UP:-1}
+      - CAN_DEVICE=${CAN_DEVICE:-can0}
+      - CAN_BITRATE=${CAN_BITRATE:-500000}    # 드라이브 설정과 동일하게
+
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

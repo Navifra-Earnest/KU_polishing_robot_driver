@@ -1,0 +1,18 @@
+# catkin
+catkin_ws/build/
+catkin_ws/devel/
+catkin_ws/install/
+catkin_ws/logs/
+.catkin_workspace
+# catkin 자동생성 심링크 (catkin_make 가 재생성)
+catkin_ws/src/CMakeLists.txt
+
+# 산출물 압축본
+*.tar.gz
+
+# OMC 운영 상태 (커밋 제외)
+.omc/
+
+# python 부산물
+__pycache__/
+*.pyc

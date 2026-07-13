@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "gdb: motor_driver_node",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/catkin_ws/devel/lib/motor_driver/motor_driver_node",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}/catkin_ws",
+      "environment": [
+        { "name": "ROS_MASTER_URI", "value": "http://localhost:11311" }
+      ],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "preLaunchTask": "ROS: build (debug)",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}

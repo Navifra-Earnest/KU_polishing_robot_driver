@@ -1,0 +1,53 @@
+# =============================================================================
+# Polishing motor_driver 노드 systemd 서비스 유닛 (ROS1 Noetic, 로봇 PC)
+#
+#   목적: 부팅 시 motor_driver_node 를 자동 실행.
+#   중요: systemd 는 로그인 셸이 아니라 ~/.bashrc 를 읽지 않는다.
+#         → ROS/install 환경은 이 유닛의 ExecStart 안에서 직접 source 한다.
+#
+# ---------------------------------------------------------------------------
+# 설치 (로봇 PC):
+#   1) 경로/사용자 치환: 아래 <USER> 를 실제 로봇 계정으로 바꾼다.
+#        sudo sed 's/<USER>/robot/g' motor_driver.service \
+#          | sudo tee /etc/systemd/system/motor_driver.service
+#   2) CAN 브링업 서비스는 caninit.service (Type=oneshot, /usr/bin/caninit_script.sh)
+#      로 가정한다. 로봇의 서비스명이 다르면 After=/Requires= 를 실제 이름으로 수정.
+#   3) 활성화:
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now motor_driver.service
+#   4) 확인:
+#        systemctl status motor_driver.service
+#        journalctl -u motor_driver.service -f
+# ---------------------------------------------------------------------------
+[Unit]
+Description=Polishing motor_driver (ROS1 Noetic, Kinco CANopen 2-motor)
+# --- 시작 순서: CAN 초기화(caninit.service) 완료 뒤에 시작 ---
+# caninit.service 는 Type=oneshot + RemainAfterExit=yes 라, 스크립트가 끝난(=CAN up)
+# 뒤 계속 active 로 남으므로 After=/Requires= 로 안전하게 순서를 보장할 수 있다.
+After=network-online.target caninit.service
+Wants=network-online.target
+Requires=caninit.service
+# (대안) 별도 CAN 서비스 없이 can0 디바이스 존재에만 의존하려면 위 대신:
+#   After=sys-subsystem-net-devices-can0.device
+#   BindsTo=sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=simple
+# raw CAN 소켓은 can0 가 up 이면 root 불필요 → 비루트 계정으로 실행
+User=<USER>
+Group=<USER>
+
+# ROS1 네트워킹 (필요에 맞게 수정; 고객사 master 사용 시 그 주소로)
+Environment=ROS_MASTER_URI=http://localhost:11311
+Environment=ROS_IP=127.0.0.1
+
+# .bashrc 에 의존하지 않고 여기서 명시적으로 source (systemd 는 .bashrc 를 안 읽음).
+# roslaunch 는 master 가 없으면 roscore 를 자동 기동한다.
+ExecStart=/bin/bash -c 'source /opt/ros/noetic/setup.bash && source /home/<USER>/navifra/install/setup.bash && exec roslaunch motor_driver motor_driver.launch'
+
+# can0 가 아직 안 올라온 타이밍 등 초기 실패 시 재시도
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
