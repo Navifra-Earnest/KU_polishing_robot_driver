@@ -4,6 +4,7 @@ control_frequency: 50.0       # 제어/피드백 주기 [Hz]
 drive_motor_ids: [1, 2]       # 구동모터 CANopen Node ID (순서 = cmd data 순서)
 cmd_timeout_sec: 1.0          # 이 시간 동안 /motor/cmd 미수신 시 0속도 유지 [s]
 feedback_timeout_sec: 0.5     # 이 시간 동안 모터 피드백(TPDO2) 미수신 시 /motor/alarm 에 MOTOR_FEEDBACK_TIMEOUT [s]
+fault_reset_interval_sec: 2.0 # 드라이브 fault 자동 리셋 재시도 최소 간격 [s] (블로킹 리셋을 rate-limit)
 
 # 안전 인터록 (기본 비활성 → 시작 즉시 구동 가능. PLC 연동 시 true 로)
 require_traction_enable: false  # true면 /traction_enable=true 전까지 구동 금지

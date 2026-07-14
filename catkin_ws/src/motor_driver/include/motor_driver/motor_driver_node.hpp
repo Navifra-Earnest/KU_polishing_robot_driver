@@ -37,6 +37,7 @@ public:
 private:
     // 콜백
     void cmdCallback(const std_msgs::Float32MultiArray::ConstPtr& msg);
+    void estopCallback(const std_msgs::Bool::ConstPtr& msg);  // /estop (소프트웨어 긴급정지)
     // void tractionEnableCallback(const std_msgs::Bool::ConstPtr& msg);  // /traction_enable 미구성 (주석)
     // void brakeFeedbackCallback(const std_msgs::Bool::ConstPtr& msg);  // /motor_brakeon_feedback 미구성 (주석)
     void controlLoop(const ros::TimerEvent&);
@@ -56,11 +57,13 @@ private:
     double control_frequency_{50.0};
     double cmd_timeout_sec_{1.0}; // 명령 타임아웃 시간 (초)
     double feedback_timeout_sec_{0.5}; // 피드백 미수신 시 MOTOR_FEEDBACK_TIMEOUT 알람 (초)
+    double fault_reset_interval_sec_{2.0}; // 드라이브 fault 자동 리셋 재시도 최소 간격 (초)
     bool require_traction_enable_{false};   // true면 traction 지령 전까지 구동 금지
     bool use_brake_interlock_{false};       // true면 브레이크 해제 전까지 구동 금지
 
     // 통신
     ros::Subscriber cmd_sub_;
+    ros::Subscriber estop_sub_;      // /estop  긴급정지 지령 (true=정지, false=해제)
     // ros::Subscriber traction_enable_sub_;  // /traction_enable 미구성 (주석)
     // ros::Subscriber brake_fb_sub_;  // /motor_brakeon_feedback 미구성 (주석)
     ros::Publisher velocity_pub_;   // /motor/velocity  실측 속도 [m1_rpm, m2_rpm]
@@ -70,9 +73,11 @@ private:
     ros::Timer control_timer_;
 
     ros::Time last_cmd_time_;
+    ros::Time last_reset_attempt_;   // 마지막 fault reset 시도 시각 (재시도 rate-limit용, 타이머 스레드 전용)
     std::atomic<bool> motors_enabled_{false};
     std::atomic<bool> transition_in_progress_{false};
     std::atomic<bool> is_error_{false};
+    std::atomic<bool> estop_engaged_{false};  // /estop 긴급정지 상태
 
     // traction enable 지령 (-1: 미수신, 0: disable, 1: enable)
     std::atomic<int> last_traction_enable_cmd_{-1};

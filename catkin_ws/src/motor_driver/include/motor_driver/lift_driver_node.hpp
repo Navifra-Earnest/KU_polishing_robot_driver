@@ -4,9 +4,11 @@
 #include <std_msgs/String.h>
 #include <std_msgs/Int32.h>
 #include <std_msgs/Int16.h>
+#include <std_msgs/Bool.h>
 
 #include "motor_driver/serial_interface.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -36,6 +38,7 @@ public:
 private:
     void commandCallback(const std_msgs::String::ConstPtr& msg);
     void velocityCmdCallback(const std_msgs::Int16::ConstPtr& msg);
+    void estopCallback(const std_msgs::Bool::ConstPtr& msg);  // /estop 긴급정지 (모터와 공유)
     void pollTimer(const ros::TimerEvent&);
 
     void sendFrame(uint8_t pid, const std::vector<uint8_t>& data);
@@ -49,6 +52,7 @@ private:
     ros::NodeHandle pnh_;
     ros::Subscriber cmd_sub_;
     ros::Subscriber vel_cmd_sub_;
+    ros::Subscriber estop_sub_;
     ros::Publisher position_pub_;
     ros::Publisher status_pub_;
     ros::Timer poll_timer_;
@@ -71,6 +75,7 @@ private:
     uint8_t status_byte_{0};
     int16_t rpm_{0};
     ros::Time last_rx_;
+    std::atomic<bool> estop_engaged_{false};  // /estop=true 면 상승/하강 무시하고 정지
 
     std::vector<uint8_t> rx_buf_;
 };

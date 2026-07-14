@@ -39,6 +39,7 @@ LiftDriver::LiftDriver(ros::NodeHandle& nh, ros::NodeHandle& pnh)
 
     cmd_sub_ = nh_.subscribe("/lift/command", 10, &LiftDriver::commandCallback, this);
     vel_cmd_sub_ = nh_.subscribe("/lift/velocity_cmd", 10, &LiftDriver::velocityCmdCallback, this);
+    estop_sub_ = nh_.subscribe("/estop", 10, &LiftDriver::estopCallback, this);  // 모터와 공유
     position_pub_ = nh_.advertise<std_msgs::Int32>("/lift/position", 10);
     status_pub_ = nh_.advertise<std_msgs::String>("/lift/status", 10);
 
@@ -89,8 +90,24 @@ void LiftDriver::requestMonitor()
     sendFrame(PID_REQ_PID_DATA, {PID_MONITOR});
 }
 
+void LiftDriver::estopCallback(const std_msgs::Bool::ConstPtr& msg)
+{
+    const bool prev = estop_engaged_.exchange(msg->data);
+    if (msg->data) {
+        sendVelocity(0);   // 즉시 정지
+        if (!prev) ROS_WARN("lift_driver: E-STOP engaged (/estop=true) -> lift stopped, commands ignored.");
+    } else if (prev) {
+        ROS_INFO("lift_driver: E-STOP released (/estop=false).");
+    }
+}
+
 void LiftDriver::commandCallback(const std_msgs::String::ConstPtr& msg)
 {
+    if (estop_engaged_.load()) {
+        sendVelocity(0);
+        ROS_WARN_THROTTLE(2.0, "lift_driver: E-STOP engaged, ignoring '%s'.", msg->data.c_str());
+        return;
+    }
     const std::string& c = msg->data;
     if (c == "up") {
         sendVelocity(static_cast<int16_t>(up_speed_rpm_));       // 리미트에서 드라이브가 자동 정지
@@ -105,6 +122,10 @@ void LiftDriver::commandCallback(const std_msgs::String::ConstPtr& msg)
 
 void LiftDriver::velocityCmdCallback(const std_msgs::Int16::ConstPtr& msg)
 {
+    if (estop_engaged_.load()) {
+        sendVelocity(0);
+        return;
+    }
     sendVelocity(msg->data);
 }
 

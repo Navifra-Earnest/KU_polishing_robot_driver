@@ -18,6 +18,10 @@
                      /lift/command·velocity_cmd·position·status 및 검증 절차(4.6) 반영.
                      네트워크 IP 표 정리(로봇 PC/LiDAR/Safety PLC/Crevis + AP 대역).
                      리프트는 증분 위치(엔코더)라 재부팅 후 원점 재설정 필요 명시.
+   2026-07-14  v0.5  긴급정지(소프트웨어 E-stop) 추가 — /estop (std_msgs/Bool). 구동부·
+                     리프트가 공통 구독: true=즉시 0속도+servo OFF, false=해제. 검증(4.7) 반영.
+                     ⚠️ 소프트웨어 정지이며 안전인증(safety-rated) 아님 — Safety PLC 하드
+                     E-stop 과의 관계는 협의 필요(§6).
    (이후 기능 추가 시 이 문서를 계속 갱신)
 
 --------------------------------------------------------------------------------
@@ -31,7 +35,8 @@
        출력  /bms/state      sensor_msgs/BatteryState   (배터리 잔량/충전상태 등)
        입력  /crevis/led/*   std_msgs/Bool              (조명 LED 개별 on/off, 6개)
        입력  /lift/command   std_msgs/String            (리프트: "up"/"down"/"stop")
-       출력  /lift/position  std_msgs/Int32            (리프트 위치, 홀 카운트 증분)
+       출력  /lift/position  std_msgs/Int32             (리프트 위치, 홀 카운트 증분)
+       입력  /estop          std_msgs/Bool              (긴급정지: true=정지, false=해제)
  - 실행(로봇):   roslaunch motor_driver bringup.launch    (구동부)
                  roslaunch motor_driver bms.launch        (배터리)
                  roslaunch crevis_io_driver crevis_io.launch  (조명 LED / Crevis I/O)
@@ -216,6 +221,21 @@ AP(무선) 네트워크:
  * 연결: RS485. 현재 USB-RS485(FTDI, /dev/ttyUSB0)로 검증됨. 네이티브 COM1(/dev/ttyS0)
    사용 시 RS485 A/B 극성만 맞추면 됨(드라이버 동일).
 
+ 3.6 [긴급정지 — 소프트웨어 E-stop]  (구동부 + 리프트 공통)
+ --------------------------------------------------------------------------
+ 방향  토픽       메시지 타입        내용
+ ----  --------   ---------------   ------------------------------------------
+ 입력  /estop     std_msgs/Bool      true = 긴급정지, false = 해제 (sticky, 명시적 해제 필요)
+
+ * 동작: /estop=true 발행 시
+     - 구동부: 즉시 목표속도 0 + 모터 servo OFF (인터록 경유). 이후 /motor/cmd 무시.
+     - 리프트: 즉시 정지. 이후 /lift/command·/lift/velocity_cmd 무시.
+   /estop=false 를 발행해야 해제되어 다시 명령을 받는다(자동 해제 없음).
+ * 구동부·리프트가 같은 /estop 토픽을 구독하므로 한 번 발행으로 둘 다 정지한다.
+ * ⚠️ 이것은 소프트웨어 정지이며 안전인증(safety-rated) E-stop 이 아니다.
+   물리 비상정지 버튼/안전회로는 Safety PLC(192.168.100.103) 하드 E-stop 으로 구성해야 하며,
+   ROS /estop 은 상위 로직/원격에서의 소프트 정지 용도다. 둘의 연동 방식은 §6 참고(협의 필요).
+
 --------------------------------------------------------------------------------
  4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)
 --------------------------------------------------------------------------------
@@ -291,6 +311,17 @@ AP(무선) 네트워크:
              rostopic pub -1 /lift/command std_msgs/String "data: stop"  # 정지
      * 위치(/lift/position)는 증분 카운트 → 전원 재부팅 후 0 근처로 리셋됨(원점 재설정 필요).
 
+ 4.7 긴급정지(E-stop) 검증
+     [사전] 구동부(bringup) / 리프트(lift) 실행 중.
+     [정지]  주행/리프트 동작 중 새 터미널에서:
+       rostopic pub -1 /estop std_msgs/Bool "data: true"
+       기대: 구동모터·리프트 즉시 정지. 이후 /cmd_vel·/motor/cmd·/lift/command 를 보내도
+             움직이지 않음(무시). 로그에 "E-STOP engaged" 출력.
+     [해제]  rostopic pub -1 /estop std_msgs/Bool "data: false"
+       기대: 로그에 "E-STOP released". 이후 정상 명령 다시 수용.
+     * /estop 은 sticky(자동 해제 없음) — 반드시 false 를 명시 발행해야 재구동 가능.
+     * 물리 비상버튼은 Safety PLC 하드 E-stop 으로 별도 구성(§3.6·§6). /estop 은 소프트 정지.
+
 --------------------------------------------------------------------------------
  5. 파라미터 (참고)
 --------------------------------------------------------------------------------
@@ -302,6 +333,7 @@ AP(무선) 네트워크:
      drive_motor_ids   : [1, 2]   (CANopen Node ID)
      cmd_timeout_sec   : 1.0      (명령 미수신 시 정지)
      feedback_timeout_sec : 0.5   (피드백 미수신 시 알람)
+     fault_reset_interval_sec : 2.0 (드라이브 fault 자동 리셋 재시도 최소 간격)
  config/bms_driver.yaml
      can_device        : can1 (250K)
      design_capacity   : 배터리 설계 용량 [Ah] (설정 시 잔량 표시 보완)
@@ -333,7 +365,12 @@ AP(무선) 네트워크:
         LED 6개 개별 on/off + readback + 통합상태(/crevis/led_state_all) 동작 확인.
         입력 레지스터(/crevis/di)는 1워드 수신 확인(전체 입력 IO 맵은 미확보 → 필요시 확장).
 
- [참고] 리프트 — 구현 완료(lift_driver). 위치는 증분(엔코더)이라 전원 재부팅 후 엔코더 휘발. 
+ [참고] 리프트 — 구현 완료(lift_driver). 위치는 증분(엔코더)이라 전원 재부팅 후 엔코더 휘발.
         포지션 제어로 사용할 시 호밍(원점 재설정) 구현 필요.
+
+ [협의필요] 긴급정지 — ROS /estop(소프트웨어)은 구현 완료(§3.6). 단 안전인증 정지가 아니므로
+        물리 비상버튼/안전회로는 Safety PLC(192.168.100.103) 하드 E-stop 으로 구성해야 한다.
+        "하드 E-stop 발생 시 ROS 측 통지 방식(PLC→ROS 신호)"과 "ROS /estop 이 커버할 범위"를
+        고객사와 확정 필요. (하드 E-stop 배선/신호 확정 시 §3.3 traction_enable 인터록과 연동 가능)
 
 ================================================================================

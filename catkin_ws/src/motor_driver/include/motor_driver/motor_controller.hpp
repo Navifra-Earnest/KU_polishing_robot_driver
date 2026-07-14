@@ -105,7 +105,9 @@ public:
     // 알람 발생 시 사람이 읽을 수 있는 메시지를 반환 (없으면 nullopt)
     std::optional<std::string> get_alarm(uint8_t node_id);
 
-    void enable_motor();
+    // 모든 모터가 OPERATION_ENABLED 에 도달하면 true. 하나라도 실패하면 false
+    // (드라이브 FAULT/타임아웃 등). 호출측은 반환값으로 실제 enable 여부를 판단한다.
+    bool enable_motor();
     void disable_motor();
     bool reset_motor();
 

@@ -3,7 +3,9 @@
 Crevis **GN-9289 (MODBUS TCP) 네트워크 어댑터** + **GT-225F 16-DO 모듈** 을 통해
 폴리싱 로봇 LED 6개를 개별 ON/OFF 하고, Crevis 입력/출력 상태를 읽어 퍼블리시하는 드라이버.
 
-토비카(`core_protocol/scripts/Crevis_QD.py`)에서 검증된 **pyModbusTCP 방식**을 그대로 사용한다.
+Modbus TCP 는 **순수 소켓으로 직접 구현**(C++, `crevis_io_node.cpp`)했다 — libmodbus/pyModbusTCP
+등 외부 라이브러리·파이썬 의존이 **전혀 없다**. 레지스터/코일 맵은 토비카
+(`core_protocol/scripts/Crevis_QD.py`)에서 검증된 것과 동일하다.
 
 ---
 
@@ -75,9 +77,10 @@ Crevis **GN-9289 (MODBUS TCP) 네트워크 어댑터** + **GT-225F 16-DO 모듈*
 
 ### 읽기
 ```
-/crevis/led_state/<name>   std_msgs/Bool           출력 코일 readback (실제 상태)
+/crevis/led_state/<name>   std_msgs/Bool             출력 코일 readback (실제 상태, 개별)
+/crevis/led_state_all      std_msgs/String           LED 6개 통합 상태 한 줄 (mask 포함)
 /crevis/di                 std_msgs/Int32MultiArray  입력 레지스터 raw (16bit 워드)
-/crevis/connected          std_msgs/Bool           Modbus 연결 상태
+/crevis/connected          std_msgs/Bool             Modbus 연결 상태
 ```
 
 ---
@@ -85,10 +88,7 @@ Crevis **GN-9289 (MODBUS TCP) 네트워크 어댑터** + **GT-225F 16-DO 모듈*
 ## 4. 실행 / 테스트
 
 ```bash
-# 의존성 (최초 1회)
-pip3 install pyModbusTCP
-
-# 빌드 (컨테이너/로봇 catkin_ws 에서)
+# 빌드 (컨테이너/로봇 catkin_ws 에서) — 외부 의존성 없음(순수 C++ 소켓)
 catkin_make            # 또는 catkin build
 source devel/setup.bash
 

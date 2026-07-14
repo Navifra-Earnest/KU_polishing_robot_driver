@@ -270,11 +270,11 @@ bool MotorController::wait_for_state(uint8_t node_id, CiA402State target_state, 
     return false;
 }
 
-void MotorController::enable_motor() {
-    std::vector<std::future<void>> futures;
+bool MotorController::enable_motor() {
+    std::vector<std::future<bool>> futures;
 
     for (const auto& node_id : node_ids_) {
-        futures.push_back(std::async(std::launch::async, [this, node_id]() {
+        futures.push_back(std::async(std::launch::async, [this, node_id]() -> bool {
             const uint8_t mode = 3;  // Velocity Mode
 
             std::cout << "Enabling Motor with Node ID " << static_cast<int>(node_id) << "..." << std::endl;
@@ -303,7 +303,7 @@ void MotorController::enable_motor() {
             change_motor_state(node_id, Controlword::SHUTDOWN, mode);
             if (!wait_for_state(node_id, CiA402State::READY_TO_SWITCH_ON, 2000)) {
                 std::cerr << "Failed to reach READY_TO_SWITCH_ON state for Node ID " << static_cast<int>(node_id) << std::endl;
-                return;
+                return false;
             }
 
             // Step 2: SWITCH_ON
@@ -313,7 +313,7 @@ void MotorController::enable_motor() {
             change_motor_state(node_id, Controlword::SWITCH_ON, mode);
             if (!wait_for_state(node_id, CiA402State::SWITCHED_ON, 2000)) {
                 std::cerr << "Failed to reach SWITCHED_ON state for Node ID " << static_cast<int>(node_id) << std::endl;
-                return;
+                return false;
             }
 
             // Step 3: ENABLE_OPERATION
@@ -323,16 +323,20 @@ void MotorController::enable_motor() {
             change_motor_state(node_id, Controlword::ENABLE_OPERATION, mode);
             if (!wait_for_state(node_id, CiA402State::OPERATION_ENABLED, 2000)) {
                 std::cerr << "Failed to reach OPERATION_ENABLED state for Node ID " << static_cast<int>(node_id) << std::endl;
-                return;
+                return false;
             }
 
             std::cout << "Motor with Node ID " << static_cast<int>(node_id) << " enabled (Servo ON)." << std::endl;
+            return true;
         }));
     }
 
+    // 모든 모터가 OPERATION_ENABLED 에 도달해야 성공. 하나라도 실패하면 false.
+    bool all_enabled = true;
     for (auto& f : futures) {
-        f.get();
+        if (!f.get()) all_enabled = false;
     }
+    return all_enabled;
 }
 
 void MotorController::disable_motor() {
