@@ -30,9 +30,12 @@
        출력  /odom           nav_msgs/Odometry          (위치/자세/속도 + TF odom->base_link)
        출력  /bms/state      sensor_msgs/BatteryState   (배터리 잔량/충전상태 등)
        입력  /crevis/led/*   std_msgs/Bool              (조명 LED 개별 on/off, 6개)
+       입력  /lift/command   std_msgs/String            (리프트: "up"/"down"/"stop")
+       출력  /lift/position  std_msgs/Int32            (리프트 위치, 홀 카운트 증분)
  - 실행(로봇):   roslaunch motor_driver bringup.launch    (구동부)
                  roslaunch motor_driver bms.launch        (배터리)
                  roslaunch crevis_io_driver crevis_io.launch  (조명 LED / Crevis I/O)
+                 roslaunch motor_driver lift.launch       (리프트)
 
 --------------------------------------------------------------------------------
  1. 구성 개요
@@ -43,10 +46,14 @@
    [base_controller]    표준 이동로봇 인터페이스 (cmd_vel <-> odom, 차동구동)
    [bms_driver]         배터리(Daly BMS) 모니터링 (CAN 250K)
    [crevis_io_node]     조명 LED / 디지털 I/O (Crevis GN-9289, MODBUS TCP 이더넷)
+   [lift_driver]        리프트 제어 (MDROBOT MD, RS485)
 
  CAN 버스:
    can0 : 500 kbps  — 구동 모터 (Node ID 1, 2)
    can1 : 250 kbps  — Daly BMS
+
+ RS485:
+   /dev/ttyS0 (COM1) — 리프트 모터드라이버 (USB-RS485 테스트 시 /dev/ttyUSB0)
 
 네트워크 IP 구성:
   로봇 PC        : 192.168.100.100
@@ -63,8 +70,9 @@ AP(무선) 네트워크:
 
   ※ AP 설정 시 위 대역 참고 바랍니다.
 
- 상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"(/cmd_vel, /odom, /bms/state)만
- 사용하면 됩니다. 저수준 토픽(/motor/*)은 디버그/직접제어용입니다.
+ 상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"
+ (/cmd_vel, /odom, /bms/state, /crevis/led/*, /lift/command·/lift/position)만
+ 사용하면 됩니다. 저수준 토픽(/motor/*, /lift/velocity_cmd)은 디버그/직접제어용입니다.
 
 --------------------------------------------------------------------------------
  2. 실행 방법
@@ -89,6 +97,12 @@ AP(무선) 네트워크:
        -> /crevis/led/* 구독(LED on/off),
           /crevis/led_state/*·/crevis/led_state_all·/crevis/connected·/crevis/di 발행
        (Crevis GN-9289 IP 는 config/crevis_io.yaml 의 ip 파라미터와 일치해야 함)
+
+ 2.5 리프트 제어
+     roslaunch motor_driver lift.launch
+       -> /lift/command·/lift/velocity_cmd 구독,
+          /lift/position·/lift/status 발행
+       (포트는 config/lift_driver.yaml 의 port, 기본 /dev/ttyS0)
 
 --------------------------------------------------------------------------------
  3. ROS 인터페이스 (API)
@@ -212,11 +226,15 @@ AP(무선) 네트워크:
  4.0 사전 준비
      - 로봇 PC 에서 드라이버 실행:  roslaunch motor_driver bringup.launch
      - 배터리 확인 시:             roslaunch motor_driver bms.launch
+     - 조명 LED 확인 시:           roslaunch crevis_io_driver crevis_io.launch
+     - 리프트 확인 시:             roslaunch motor_driver lift.launch
      - 토픽 목록 확인:             rostopic list
 
  4.1 통신 확인 (토픽 존재/연결)
      rostopic list
        기대: /cmd_vel /odom /bms/state /motor/velocity /motor/status /motor/error ...
+             (조명) /crevis/led/* /crevis/led_state_all /crevis/connected
+             (리프트) /lift/command /lift/position /lift/status
      rostopic info /odom          # 발행자(publisher)가 base_controller 인지 확인
      rostopic hz /odom            # 주기적으로 발행되는지 (약 50Hz)
 
@@ -263,13 +281,15 @@ AP(무선) 네트워크:
      * 명령한 색과 실제 켜지는 LED/색이 다르면 crevis_io.yaml 의 leds 비트매핑을 배선에 맞게 조정.
 
  4.6 리프트 검증  (lift_driver)
-     roslaunch motor_driver lift.launch
+     [사전] 로봇 PC 에서:  roslaunch motor_driver lift.launch
      [상태]  rostopic echo /lift/position    # 손으로 움직이면 값 변함(엔코더)
              rostopic echo /lift/status      # connected pos=.. status=OK
+             (status 에 NO_DATA 가 반복되면 포트/배선/baud 확인)
      [동작]  ⚠️ 리프트 주변 안전 확보 후:
              rostopic pub -1 /lift/command std_msgs/String "data: up"    # 상승(리미트서 자동정지)
              rostopic pub -1 /lift/command std_msgs/String "data: down"  # 하강
              rostopic pub -1 /lift/command std_msgs/String "data: stop"  # 정지
+     * 위치(/lift/position)는 증분 카운트 → 전원 재부팅 후 0 근처로 리셋됨(원점 재설정 필요).
 
 --------------------------------------------------------------------------------
  5. 파라미터 (참고)
@@ -291,6 +311,12 @@ AP(무선) 네트워크:
      write_mode        : coil (권장, 개별 비트) | register (16bit 묶음)
      output_coil_base  : 0x1000 (출력 코일 시작주소, 슬롯 위치 다르면 16씩 가산)
      leds              : LED 이름↔출력비트 매핑 (vision=0 ~ status_blue=5)
+ config/lift_driver.yaml
+     port              : RS485 포트 (/dev/ttyS0 = COM1, USB-485 시 /dev/ttyUSB0)
+     baud              : 19200
+     up_speed_rpm      : 상승 속도 [rpm] (현장 확인 +1000=상승, 하강은 -값)
+     poll_rate         : 위치/상태 폴링 [Hz] (10.0)
+     timeout_sec       : 응답 없으면 /lift/status = NO_DATA (1.0)
 
 --------------------------------------------------------------------------------
  6. 알려진 이슈 / 미구현
