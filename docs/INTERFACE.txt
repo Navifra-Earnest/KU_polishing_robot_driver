@@ -22,13 +22,16 @@
                      리프트가 공통 구독: true=즉시 0속도+servo OFF, false=해제. 검증(4.7) 반영.
                      ⚠️ 소프트웨어 정지이며 안전인증(safety-rated) 아님 — Safety PLC 하드
                      E-stop 과의 관계는 협의 필요(§6).
+   2026-07-14  v0.6  Safety PLC 인터페이스 추가 — safety_io_driver (PILZ PNOZ m B0.1
+                     + PNOZ m ES ETH, MODBUS TCP). 물리 I/O 개별 상태 및 충전 릴레이
+                     ON/OFF 인터페이스 반영.
    (이후 기능 추가 시 이 문서를 계속 갱신)
 
 --------------------------------------------------------------------------------
  0. 요약 (한눈에)
 --------------------------------------------------------------------------------
  - ROS 버전 : ROS1 Noetic (Ubuntu 20.04, x86_64)
- - 패키지명 : motor_driver
+ - 패키지명 : motor_driver, crevis_io_driver, safety_io_driver
  - 상위(고객사)에서 쓰는 표준 인터페이스:
        입력  /cmd_vel        geometry_msgs/Twist        (주행 명령: 선속도 v, 각속도 w)
        출력  /odom           nav_msgs/Odometry          (위치/자세/속도 + TF odom->base_link)
@@ -37,10 +40,15 @@
        입력  /lift/command   std_msgs/String            (리프트: "up"/"down"/"stop")
        출력  /lift/position  std_msgs/Int32             (리프트 위치, 홀 카운트 증분)
        입력  /estop          std_msgs/Bool              (긴급정지: true=정지, false=해제)
+       출력  /safety/input/* std_msgs/Bool              (Safety PLC 물리 입력 raw 상태)
+       출력  /safety/output/* std_msgs/Bool             (Safety PLC 물리 출력 raw 상태)
+       입력  /safety/charging std_msgs/Bool             (충전 ON/OFF 요청)
+       출력  /safety/output/charge_port_on std_msgs/Bool (충전 릴레이 실제 상태 확인)
  - 실행(로봇):   roslaunch motor_driver bringup.launch    (구동부)
                  roslaunch motor_driver bms.launch        (배터리)
                  roslaunch crevis_io_driver crevis_io.launch  (조명 LED / Crevis I/O)
                  roslaunch motor_driver lift.launch       (리프트)
+                 roslaunch safety_io_driver safety_io.launch  (Safety PLC I/O)
 
 --------------------------------------------------------------------------------
  1. 구성 개요
@@ -52,6 +60,7 @@
    [bms_driver]         배터리(Daly BMS) 모니터링 (CAN 250K)
    [crevis_io_node]     조명 LED / 디지털 I/O (Crevis GN-9289, MODBUS TCP 이더넷)
    [lift_driver]        리프트 제어 (MDROBOT MD, RS485)
+   [safety_io_node]     Safety PLC I/O 및 충전 릴레이 제어 (PILZ PNOZmulti 2, MODBUS TCP)
 
  CAN 버스:
    can0 : 500 kbps  — 구동 모터 (Node ID 1, 2)
@@ -76,7 +85,8 @@ AP(무선) 네트워크:
   ※ AP 설정 시 위 대역 참고 바랍니다.
 
  상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"
- (/cmd_vel, /odom, /bms/state, /crevis/led/*, /lift/command·/lift/position)만
+ (/cmd_vel, /odom, /bms/state, /crevis/led/*, /lift/command·/lift/position,
+ /safety/input/*, /safety/output/*, /safety/charging)만
  사용하면 됩니다. 저수준 토픽(/motor/*, /lift/velocity_cmd)은 디버그/직접제어용입니다.
 
 --------------------------------------------------------------------------------
@@ -108,6 +118,12 @@ AP(무선) 네트워크:
        -> /lift/command·/lift/velocity_cmd 구독,
           /lift/position·/lift/status 발행
        (포트는 config/lift_driver.yaml 의 port, 기본 /dev/ttyS0)
+
+ 2.6 Safety PLC I/O
+     roslaunch safety_io_driver safety_io.launch
+       -> /safety/input/*·/safety/output/*·/safety/state_all·/safety/connected 발행
+       -> /safety/charging 구독(충전 릴레이 ON/OFF)
+       (PILZ PNOZ m ES ETH IP 기본값: 192.168.100.103, MODBUS TCP 502)
 
 --------------------------------------------------------------------------------
  3. ROS 인터페이스 (API)
@@ -236,6 +252,41 @@ AP(무선) 네트워크:
    물리 비상정지 버튼/안전회로는 Safety PLC(192.168.100.103) 하드 E-stop 으로 구성해야 하며,
    ROS /estop 은 상위 로직/원격에서의 소프트 정지 용도다. 둘의 연동 방식은 §6 참고(협의 필요).
 
+ 3.7 [Safety PLC I/O 및 충전 릴레이]  (safety_io_node, PILZ PNOZmulti 2)
+ --------------------------------------------------------------------------
+ Safety PLC의 물리 I/O 상태를 개별 Bool 토픽으로 발행합니다. 모든 값은 PLC 단자의
+ raw 논리 상태이며 true만으로 안전 상태라고 판단하면 안 됩니다.
+
+ [입력 상태]
+ 방향  토픽                                           PLC I/O  내용
+ ----  --------------------------------------------   -------  ----------------------
+ 출력  /safety/input/safety_emergency_1b             I0       EMERGENCY 1b
+ 출력  /safety/input/safety_emergency_2b             I1       EMERGENCY 2b
+ 출력  /safety/input/safety_auto_mode                I4       AUTO MODE
+ 출력  /safety/input/safety_manual_mode              I5       MANUAL MODE
+ 출력  /safety/input/safety_reset_switch             I6       RESET SWITCH
+ 출력  /safety/input/safety_brake_release_sw         I7       BRAKE RELEASE SWITCH
+ 출력  /safety/input/safety_bumper_front             I9       BUMPER FRONT
+ 출력  /safety/input/safety_bumper_rear              I10      BUMPER REAR
+
+ [출력 상태 readback]
+ 방향  토픽                                           PLC I/O  내용
+ ----  --------------------------------------------   -------  ----------------------
+ 출력  /safety/output/motor_sto_01sr                 O0       01SR MOTOR STO
+ 출력  /safety/output/motor_sto_02sr                 O1       02SR MOTOR STO
+ 출력  /safety/output/charge_port_on                 O2       CHARGE PORT ON
+ 출력  /safety/output/traction_motor_power_on        O3       TRACTION MOTOR POWER
+
+ [통합 상태 및 명령]
+ 방향  토픽                    메시지 타입       내용
+ ----  ---------------------   ---------------   --------------------------------------
+ 출력  /safety/connected       std_msgs/Bool     Safety PLC 연결 상태(true=정상)
+ 출력  /safety/state_all       std_msgs/String   위 개별 I/O 상태를 한 줄로 표시(편의용)
+ 입력  /safety/charging        std_msgs/Bool     true=ON 요청, false=OFF 요청
+
+ * 충전 릴레이의 실제 ON/OFF 상태는 /safety/output/charge_port_on으로 확인합니다.
+ * 기본 1초 watchdog 사용 시 통신이 중단되면 충전 릴레이가 OFF됩니다.
+
 --------------------------------------------------------------------------------
  4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)
 --------------------------------------------------------------------------------
@@ -248,6 +299,7 @@ AP(무선) 네트워크:
      - 배터리 확인 시:             roslaunch motor_driver bms.launch
      - 조명 LED 확인 시:           roslaunch crevis_io_driver crevis_io.launch
      - 리프트 확인 시:             roslaunch motor_driver lift.launch
+     - Safety PLC 확인 시:         roslaunch safety_io_driver safety_io.launch
      - 토픽 목록 확인:             rostopic list
 
  4.1 통신 확인 (토픽 존재/연결)
@@ -255,6 +307,7 @@ AP(무선) 네트워크:
        기대: /cmd_vel /odom /bms/state /motor/velocity /motor/status /motor/error ...
              (조명) /crevis/led/* /crevis/led_state_all /crevis/connected
              (리프트) /lift/command /lift/position /lift/status
+             (Safety PLC) /safety/input/* /safety/output/* /safety/connected
      rostopic info /odom          # 발행자(publisher)가 base_controller 인지 확인
      rostopic hz /odom            # 주기적으로 발행되는지 (약 50Hz)
 
@@ -322,6 +375,22 @@ AP(무선) 네트워크:
      * /estop 은 sticky(자동 해제 없음) — 반드시 false 를 명시 발행해야 재구동 가능.
      * 물리 비상버튼은 Safety PLC 하드 E-stop 으로 별도 구성(§3.6·§6). /estop 은 소프트 정지.
 
+ 4.8 Safety PLC I/O 및 충전 릴레이 검증  (safety_io_driver)
+     [상태 모니터링]
+       roslaunch safety_io_driver safety_io.launch
+       rostopic echo /safety/connected
+       rostopic echo /safety/state_all
+       rostopic echo /safety/input/safety_emergency_1b
+       rostopic echo /safety/input/safety_bumper_front
+       rostopic echo /safety/output/charge_port_on
+       기대: /safety/connected=true, PLC 표시창/실제 스위치와 개별 Bool 상태 일치
+
+     [충전 릴레이 검증]
+       rostopic pub -1 /safety/charging std_msgs/Bool "data: true"
+       rostopic echo /safety/output/charge_port_on     # 릴레이 ON이면 true
+       rostopic pub -1 /safety/charging std_msgs/Bool "data: false"
+       rostopic echo /safety/output/charge_port_on     # 릴레이 OFF이면 false
+
 --------------------------------------------------------------------------------
  5. 파라미터 (참고)
 --------------------------------------------------------------------------------
@@ -349,6 +418,13 @@ AP(무선) 네트워크:
      up_speed_rpm      : 상승 속도 [rpm] (현장 확인 +1000=상승, 하강은 -값)
      poll_rate         : 위치/상태 폴링 [Hz] (10.0)
      timeout_sec       : 응답 없으면 /lift/status = NO_DATA (1.0)
+ config/safety_io.yaml (safety_io_driver 패키지)
+     ip                       : PILZ PNOZ m ES ETH IP (192.168.100.103)
+     port                     : 502 (MODBUS TCP)
+     unit_id                  : 1
+     publish_rate             : I/O 상태 poll/발행 주기 [Hz] (기본 10.0)
+     charging_watchdog_ms     : 통신 중단 시 충전 릴레이 OFF 시간(기본 1000 ms)
+     charging_off_on_shutdown : 정상 노드 종료 시 충전 릴레이 OFF
 
 --------------------------------------------------------------------------------
  6. 알려진 이슈 / 미구현

@@ -1,0 +1,43 @@
+# PILZ PNOZ m B0.1 + PNOZ m ES ETH (Modbus/TCP)
+
+ip: "192.168.100.103"
+port: 502                 # PNOZmulti 2 Modbus/TCP fixed port
+unit_id: 1
+timeout: 1.0              # socket connect/read/write timeout [s]
+publish_rate: 10.0        # polling rate [Hz]
+topic_prefix: "/safety"
+
+# PILZ 1002971-EN, "Process data addressing on base unit".
+# These are zero-based FC02 Discrete Input addresses, not 1-based 1x notation.
+input_discrete_base: 0x4000    # physical I0 address; read through I10
+output_discrete_base: 0x4020   # physical O0 address; read through O3
+input_count: 11
+output_count: 4
+
+# ---- 충전 릴레이 명령 ----
+# charging_virtual_input 값은 현장 진단 또는 PNOZmulti 프로젝트에서 확인해야 한다.
+# 아래 i2는 임시값일 뿐이며, 확인 후 번호를 바꾸고 enabled를 true로 설정한다.
+# 0x4022는 O2 readback 주소이므로 직접 쓰지 않는다.
+charging_command_enabled: false
+charging_virtual_input: 2            # placeholder; do not enable before verification
+charging_watchdog_ms: 1000       # 통신/노드 정지 시 virtual inputs를 0으로 복귀
+charging_off_on_shutdown: true
+
+# 건국대학교 폴리싱 로봇 SPLC.pdf, page 018, SAFETY PLC CIRCUIT -01
+# Values are raw physical terminal states (true=PLC input/output logic high).
+inputs:
+  - {name: "safety_emergency_1b",       bit: 0}   # 0x4000 / I0  EMERGENCY 1b
+  - {name: "safety_emergency_2b",       bit: 1}   # 0x4001 / I1  EMERGENCY 2b
+  - {name: "safety_auto_mode",          bit: 4}   # 0x4004 / I4  AUTO MODE
+  - {name: "safety_manual_mode",        bit: 5}   # 0x4005 / I5  MANUAL MODE
+  - {name: "safety_reset_switch",       bit: 6}   # 0x4006 / I6  RESET SWITCH
+  - {name: "safety_brake_release_sw",   bit: 7}   # 0x4007 / I7  BRAKE RELEASE SWITCH
+  - {name: "safety_bumper_front",       bit: 9}   # 0x4009 / I9  BUMPER FRONT
+  - {name: "safety_bumper_rear",        bit: 10}  # 0x400A / I10 BUMPER REAR
+
+# Physical output readback. The node never writes directly to these addresses.
+outputs:
+  - {name: "motor_sto_01sr",          bit: 0}  # O0  01SR MOTO STO ON/OFF
+  - {name: "motor_sto_02sr",          bit: 1}  # O1  02SR MOTO STO ON/OFF
+  - {name: "charge_port_on",           bit: 2}  # O2  CHARGE PORT ON
+  - {name: "traction_motor_power_on",  bit: 3}  # O3  TRACTION MOTOR POWER ON

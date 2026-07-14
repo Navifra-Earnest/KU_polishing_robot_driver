@@ -1,0 +1,10 @@
+<launch>
+  <!-- PILZ PNOZ m B0.1 Safety I/O driver -->
+  <arg name="config" default="$(find safety_io_driver)/config/safety_io.yaml"/>
+  <arg name="ip" default="192.168.100.103"/>
+
+  <node pkg="safety_io_driver" type="safety_io_node" name="safety_io_node" output="screen">
+    <rosparam file="$(arg config)" command="load"/>
+    <param name="ip" value="$(arg ip)"/>
+  </node>
+</launch>
