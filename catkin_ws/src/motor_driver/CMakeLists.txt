@@ -57,7 +57,16 @@ target_link_libraries(bms_driver_node
   Threads::Threads
 )
 
-install(TARGETS motor_driver_node base_controller_node bms_driver_node
+add_executable(lift_driver_node
+  src/lift_driver_node.cpp
+  src/serial_interface.cpp
+)
+
+target_link_libraries(lift_driver_node
+  ${catkin_LIBRARIES}
+)
+
+install(TARGETS motor_driver_node base_controller_node bms_driver_node lift_driver_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

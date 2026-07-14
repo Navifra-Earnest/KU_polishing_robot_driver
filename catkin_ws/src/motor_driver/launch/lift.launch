@@ -1,0 +1,10 @@
+<launch>
+  <!-- 리프트 드라이버 (MDROBOT MD DC 모터, RS485 / COM1)
+       입력: /lift/command(up/down/stop), /lift/position_cmd(Int32)
+       출력: /lift/position(Int32), /lift/status(String) -->
+  <arg name="lift_params" default="$(find motor_driver)/config/lift_driver.yaml"/>
+
+  <node pkg="motor_driver" type="lift_driver_node" name="lift_driver" output="screen">
+    <rosparam command="load" file="$(arg lift_params)"/>
+  </node>
+</launch>

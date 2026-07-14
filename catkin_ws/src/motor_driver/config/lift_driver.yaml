@@ -1,0 +1,15 @@
+# lift_driver (MDROBOT MD DC 모터드라이버, RS485) 파라미터
+# 현장 확인: INPUT_TYPE=ANALOG(속도) + 리미트스위치 사용 → 속도명령으로 상승/하강,
+#            드라이브가 상/하 리미트에서 자동 정지. 위치는 엔코더 카운트로 모니터링(증분).
+
+port: "/dev/ttyS0"       # 로봇 COM1(네이티브 RS485). A/B 극성 확인됨. USB-485 테스트 시 /dev/ttyUSB0
+baud: 19200              # 확인됨
+controller_id: 1         # 확인됨
+host_mid: 172            # 상위기(PC/MMI) MID
+motor_rmid: 183          # 모터제어기 MID
+
+# 상승 속도[rpm]. 부호가 '상승' 방향(하강은 자동으로 -값). ⚠️ 실측으로 방향/크기 확정 필요.
+up_speed_rpm: 1000       # 현장 확인: +1000rpm = 상승(위치 증가), -1000 = 하강. 리미트에서 자동정지
+
+poll_rate: 10.0          # [Hz] 위치/상태 폴링
+timeout_sec: 1.0         # 이 시간 동안 응답 없으면 /lift/status = NO_DATA

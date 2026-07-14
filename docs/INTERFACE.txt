@@ -14,6 +14,10 @@
                      Crevis 실장비 연동 검증 완료 (IP 192.168.100.104, LED 6개 on/off+
                      readback+통합상태 확인). 단독 systemd 서비스는 미포함(구동/BMS 등과
                      통합 서비스로 추후 등록 예정).
+   2026-07-14  v0.4  리프트 제어 추가 — lift_driver (MDROBOT MD, RS485). 토픽
+                     /lift/command·velocity_cmd·position·status 및 검증 절차(4.6) 반영.
+                     네트워크 IP 표 정리(로봇 PC/LiDAR/Safety PLC/Crevis + AP 대역).
+                     리프트는 증분 위치(엔코더)라 재부팅 후 원점 재설정 필요 명시.
    (이후 기능 추가 시 이 문서를 계속 갱신)
 
 --------------------------------------------------------------------------------
@@ -44,12 +48,20 @@
    can0 : 500 kbps  — 구동 모터 (Node ID 1, 2)
    can1 : 250 kbps  — Daly BMS
 
- 이더넷:
-   Crevis GN-9289 (MODBUS TCP, 포트 502) — 조명 LED 등 디지털 출력.
-   현장 확정: 로봇 PC 의 eno1(192.168.100.100/24) 과 동일한 192.168.100.x 대역,
-   Crevis = 192.168.100.104. IP 는 crevis_io.yaml 의 ip 파라미터로 지정.
-   crevis_io_driver 는 C++ 구현이며 Modbus TCP 를 순수 소켓으로 처리하므로
-   별도 라이브러리(libmodbus)나 파이썬 패키지(pyModbusTCP) 설치가 필요 없습니다.
+네트워크 IP 구성:
+  로봇 PC        : 192.168.100.100
+  Front LiDAR    : 192.168.100.101
+  Rear LiDAR     : 192.168.100.102
+  Safety PLC     : 192.168.100.103
+  Crevis IO      : 192.168.100.104
+
+  ※ LAN Hub에 연결되는 장비는 모두 192.168.100.xxx 대역으로 설정 바랍니다.
+
+
+AP(무선) 네트워크:
+  AP 연결 PC IP : 192.168.1.100 (수정 가능)
+
+  ※ AP 설정 시 위 대역 참고 바랍니다.
 
  상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"(/cmd_vel, /odom, /bms/state)만
  사용하면 됩니다. 저수준 토픽(/motor/*)은 디버그/직접제어용입니다.
@@ -163,22 +175,32 @@
 
      색            red   green  blue
      -----------   ---   -----  ----
-     빨강          ON    off    off
-     초록          off   ON     off
-     파랑          off   off    ON
-     노랑          ON    ON     off
-     시안(청록)    off   ON     ON
-     마젠타(자홍)  ON    off    ON
-     흰색          ON    ON     ON
+     빨강           ON    off    off
+     초록           off   ON     off
+     파랑           off   off    ON
+     노랑           ON    ON     off
+     시안(청록)      off   ON     ON
+     마젠타(자홍)    ON    off    ON
+     흰색           ON    ON     ON
 
  * on/off(디지털 출력)만 지원하며 밝기(PWM 디밍)는 불가합니다.
  * VISION/FRONT/SIDE 는 각각 단색 조명 1개입니다 (색 고정, on/off만).
 
- 3.5 [리프트 제어]  — (예정, 미구현)
+ 3.5 [리프트 제어]  (lift_driver, MDROBOT MD 드라이버 RS485)
  --------------------------------------------------------------------------
- * 현재 미구현입니다. 사양(제어 방식/CAN 프로토콜 등) 확정 후 추가 예정.
- * 인터페이스(토픽명/메시지 타입)는 확정되는 대로 본 문서에 반영합니다.
-   (예상: 리프트 위치/속도 명령·상태 등)
+ 방향  토픽                  메시지 타입        내용
+ ----  -------------------   ---------------   ------------------------------------
+ 입력  /lift/command         std_msgs/String   "up"/"down"/"stop"
+ 입력  /lift/velocity_cmd    std_msgs/Int16    직접 속도지령[rpm](부호=방향), 고급/수동
+ 출력  /lift/position        std_msgs/Int32    현재 위치(홀 카운트, 증분)
+ 출력  /lift/status          std_msgs/String   "connected pos=.. status=OK/알람비트"
+
+ * 제어 방식: 속도명령 + 상/하 리미트스위치 자동정지. up=상승, down=하강, stop=정지.
+   (현장 확인: +1000rpm=상승, -1000=하강. 속도는 config up_speed_rpm.)
+ * 위치는 증분(엔코더/홀) → 전원 재부팅 시 원점 재설정 필요. 절대위치 이동이 필요하면
+   이 위치 피드백으로 상위/추가 로직에서 처리 가능.
+ * 연결: RS485. 현재 USB-RS485(FTDI, /dev/ttyUSB0)로 검증됨. 네이티브 COM1(/dev/ttyS0)
+   사용 시 RS485 A/B 극성만 맞추면 됨(드라이버 동일).
 
 --------------------------------------------------------------------------------
  4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)
@@ -240,8 +262,14 @@
      * 명령은 성공(로그 ON/OFF)인데 LED 가 안 켜지면 배선/전원 또는 Crevis IP 확인.
      * 명령한 색과 실제 켜지는 LED/색이 다르면 crevis_io.yaml 의 leds 비트매핑을 배선에 맞게 조정.
 
- 4.6 리프트  — (예정)
-     구현 후 시나리오 추가 예정.
+ 4.6 리프트 검증  (lift_driver)
+     roslaunch motor_driver lift.launch
+     [상태]  rostopic echo /lift/position    # 손으로 움직이면 값 변함(엔코더)
+             rostopic echo /lift/status      # connected pos=.. status=OK
+     [동작]  ⚠️ 리프트 주변 안전 확보 후:
+             rostopic pub -1 /lift/command std_msgs/String "data: up"    # 상승(리미트서 자동정지)
+             rostopic pub -1 /lift/command std_msgs/String "data: down"  # 하강
+             rostopic pub -1 /lift/command std_msgs/String "data: stop"  # 정지
 
 --------------------------------------------------------------------------------
  5. 파라미터 (참고)
@@ -279,6 +307,7 @@
         LED 6개 개별 on/off + readback + 통합상태(/crevis/led_state_all) 동작 확인.
         입력 레지스터(/crevis/di)는 1워드 수신 확인(전체 입력 IO 맵은 미확보 → 필요시 확장).
 
- [미구현] 리프트 제어 — 사양 확정 후 추가 예정.
+ [참고] 리프트 — 구현 완료(lift_driver). 위치는 증분(엔코더)이라 전원 재부팅 후 엔코더 휘발. 
+        포지션 제어로 사용할 시 호밍(원점 재설정) 구현 필요.
 
 ================================================================================
