@@ -1,0 +1,8 @@
+<launch>
+  <!-- Crevis GN-9289 (MODBUS TCP) I/O 드라이버 -->
+  <arg name="config" default="$(find crevis_io_driver)/config/crevis_io.yaml"/>
+
+  <node pkg="crevis_io_driver" type="crevis_io_node" name="crevis_io_node" output="screen">
+    <rosparam file="$(arg config)" command="load"/>
+  </node>
+</launch>

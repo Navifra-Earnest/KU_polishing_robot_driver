@@ -8,6 +8,13 @@
  [문서 갱신 이력]
    2026-07-14  v0.1  최초 작성. 구동부(cmd_vel/odom) + 배터리(BMS) 인터페이스 정리.
                      리프트/조명은 미구현(예정). 모터 enable 이슈 별도 명시.
+   2026-07-14  v0.2  조명(LED) 인터페이스 추가 — crevis_io_driver (Crevis GN-9289
+                     MODBUS TCP). LED 6개 개별 on/off 토픽. 리프트는 계속 미구현(예정).
+   2026-07-14  v0.3  crevis_io_driver C++ 전환 (순수 소켓 Modbus TCP 구현 → 외부
+                     라이브러리/파이썬 의존 0). 통합상태 토픽 /crevis/led_state_all 추가.
+                     Crevis 실장비 연동 검증 완료 (IP 192.168.100.104, LED 6개 on/off+
+                     readback+통합상태 확인). 단독 systemd 서비스는 미포함(구동/BMS 등과
+                     통합 서비스로 추후 등록 예정).
    (이후 기능 추가 시 이 문서를 계속 갱신)
 
 --------------------------------------------------------------------------------
@@ -16,11 +23,13 @@
  - ROS 버전 : ROS1 Noetic (Ubuntu 20.04, x86_64)
  - 패키지명 : motor_driver
  - 상위(고객사)에서 쓰는 표준 인터페이스:
-       입력  /cmd_vel      geometry_msgs/Twist        (주행 명령: 선속도 v, 각속도 w)
-       출력  /odom         nav_msgs/Odometry          (위치/자세/속도 + TF odom->base_link)
-       출력  /bms/state    sensor_msgs/BatteryState   (배터리 잔량/충전상태 등)
- - 실행(로봇):   roslaunch motor_driver bringup.launch   (구동부)
+       입력  /cmd_vel        geometry_msgs/Twist        (주행 명령: 선속도 v, 각속도 w)
+       출력  /odom           nav_msgs/Odometry          (위치/자세/속도 + TF odom->base_link)
+       출력  /bms/state      sensor_msgs/BatteryState   (배터리 잔량/충전상태 등)
+       입력  /crevis/led/*   std_msgs/Bool              (조명 LED 개별 on/off, 6개)
+ - 실행(로봇):   roslaunch motor_driver bringup.launch    (구동부)
                  roslaunch motor_driver bms.launch        (배터리)
+                 roslaunch crevis_io_driver crevis_io.launch  (조명 LED / Crevis I/O)
 
 --------------------------------------------------------------------------------
  1. 구성 개요
@@ -30,10 +39,18 @@
    [motor_driver_node]  저수준 모터 드라이버 (CAN/CANopen CiA402, 구동모터 2개)
    [base_controller]    표준 이동로봇 인터페이스 (cmd_vel <-> odom, 차동구동)
    [bms_driver]         배터리(Daly BMS) 모니터링 (CAN 250K)
+   [crevis_io_node]     조명 LED / 디지털 I/O (Crevis GN-9289, MODBUS TCP 이더넷)
 
  CAN 버스:
    can0 : 500 kbps  — 구동 모터 (Node ID 1, 2)
    can1 : 250 kbps  — Daly BMS
+
+ 이더넷:
+   Crevis GN-9289 (MODBUS TCP, 포트 502) — 조명 LED 등 디지털 출력.
+   현장 확정: 로봇 PC 의 eno1(192.168.100.100/24) 과 동일한 192.168.100.x 대역,
+   Crevis = 192.168.100.104. IP 는 crevis_io.yaml 의 ip 파라미터로 지정.
+   crevis_io_driver 는 C++ 구현이며 Modbus TCP 를 순수 소켓으로 처리하므로
+   별도 라이브러리(libmodbus)나 파이썬 패키지(pyModbusTCP) 설치가 필요 없습니다.
 
  상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"(/cmd_vel, /odom, /bms/state)만
  사용하면 됩니다. 저수준 토픽(/motor/*)은 디버그/직접제어용입니다.
@@ -55,6 +72,12 @@
  2.3 (참고) 키보드 수동 조종 — 검증/디버그용
      rosrun motor_driver teleop_keyboard.py
        -> 키보드로 /cmd_vel 발행 (u/i/o 전진, j/l 회전, ,/. 후진, k 정지)
+
+ 2.4 조명 LED / Crevis I/O
+     roslaunch crevis_io_driver crevis_io.launch
+       -> /crevis/led/* 구독(LED on/off),
+          /crevis/led_state/*·/crevis/led_state_all·/crevis/connected·/crevis/di 발행
+       (Crevis GN-9289 IP 는 config/crevis_io.yaml 의 ip 파라미터와 일치해야 함)
 
 --------------------------------------------------------------------------------
  3. ROS 인터페이스 (API)
@@ -110,11 +133,40 @@
  * 두 바퀴 모두 "양수 = 전진" 규약 (좌/우 방향 반전은 드라이버가 내부 처리).
  * 정수값(statusword/error_code)은 float 에 담겨 발행됩니다 (수신 측에서 반올림하여 사용).
 
- 3.4 [리프트 / 조명 제어]  — (예정, 미구현)
+ 3.4 [조명 LED 제어]  (crevis_io_node, Crevis GN-9289 MODBUS TCP)
+ --------------------------------------------------------------------------
+ LED 6개를 각각 독립 토픽으로 on/off 합니다. (data=true → ON, false → OFF)
+
+ 방향  토픽                        메시지 타입      대상 LED
+ ----  -------------------------   -------------    ----------------------------
+ 입력  /crevis/led/vision          std_msgs/Bool    VISION LED  (비전 조명)
+ 입력  /crevis/led/front           std_msgs/Bool    FRONT LED   (전방 조명)
+ 입력  /crevis/led/side            std_msgs/Bool    SIDE LED    (측면 조명)
+ 입력  /crevis/led/status_red      std_msgs/Bool    STATUS LED — 빨강
+ 입력  /crevis/led/status_green    std_msgs/Bool    STATUS LED — 초록
+ 입력  /crevis/led/status_blue     std_msgs/Bool    STATUS LED — 파랑
+
+ [상태 읽기]
+ 방향  토픽                        메시지 타입                내용
+ ----  -------------------------   ------------------------   ------------------------
+ 출력  /crevis/led_state/<name>    std_msgs/Bool              각 LED 실제 상태(readback, 개별)
+ 출력  /crevis/led_state_all       std_msgs/String            LED 6개 통합 상태 한 줄 (편의용)
+ 출력  /crevis/connected           std_msgs/Bool              Crevis 연결 상태(true=정상)
+ 출력  /crevis/di                  std_msgs/Int32MultiArray   디지털 입력 raw(16bit 워드)
+
+ * /crevis/led_state_all 예:
+     "vision=1 front=0 side=0 status_red=1 status_green=0 status_blue=0 mask=0x09"
+   (mask = 각 LED 비트 OR. vision=bit0 ~ status_blue=bit5). 6개를 한 번에 보고 싶을 때 사용.
+ * STATUS LED 는 RGB 1개(빨/초/파 3채널) — 세 토픽을 조합하면 혼합색이 됩니다.
+   (예: red+green=노랑, red+blue=마젠타, 3개 모두=흰색)
+ * on/off(디지털 출력)만 지원하며 밝기(PWM 디밍)는 불가합니다.
+ * VISION/FRONT/SIDE 는 각각 단색 조명 1개입니다.
+
+ 3.5 [리프트 제어]  — (예정, 미구현)
  --------------------------------------------------------------------------
  * 현재 미구현입니다. 사양(제어 방식/CAN 프로토콜 등) 확정 후 추가 예정.
  * 인터페이스(토픽명/메시지 타입)는 확정되는 대로 본 문서에 반영합니다.
-   (예상: 리프트 위치/속도 명령·상태, 조명 on/off·밝기 등)
+   (예상: 리프트 위치/속도 명령·상태 등)
 
 --------------------------------------------------------------------------------
  4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)
@@ -161,7 +213,22 @@
      rostopic echo /motor/alarm    # 에러 발생 시 메시지 출력
      rostopic echo /motor/status   # 전압/전류/statusword/error_code
 
- 4.5 리프트 / 조명  — (예정)
+ 4.5 조명 LED 검증  (crevis_io)
+     [사전] 로봇 PC 에서:  roslaunch crevis_io_driver crevis_io.launch
+     [연결 확인]:
+       rostopic echo /crevis/connected      # true 여야 정상 (false=Crevis 미연결/IP 확인)
+     [LED 켜기/끄기]:
+       rostopic pub -1 /crevis/led/front       std_msgs/Bool "data: true"    # 전방 조명 ON
+       rostopic pub -1 /crevis/led/status_red  std_msgs/Bool "data: true"    # 상태등 빨강 ON
+       rostopic pub -1 /crevis/led/front       std_msgs/Bool "data: false"   # 전방 조명 OFF
+       기대: 실제 LED 점등/소등, /crevis/led_state/<name> 값이 그에 맞게 바뀜
+     [상태 readback]:
+       rostopic echo /crevis/led_state/front       # 개별
+       rostopic echo /crevis/led_state_all          # 6개 통합 한 줄(mask 포함)
+     * 명령은 성공(로그 ON/OFF)인데 LED 가 안 켜지면 배선/전원 또는 Crevis IP 확인.
+     * 명령한 색과 실제 켜지는 LED/색이 다르면 crevis_io.yaml 의 leds 비트매핑을 배선에 맞게 조정.
+
+ 4.6 리프트  — (예정)
      구현 후 시나리오 추가 예정.
 
 --------------------------------------------------------------------------------
@@ -178,6 +245,12 @@
  config/bms_driver.yaml
      can_device        : can1 (250K)
      design_capacity   : 배터리 설계 용량 [Ah] (설정 시 잔량 표시 보완)
+ config/crevis_io.yaml (crevis_io_driver 패키지)
+     ip                : Crevis GN-9289 IP (현장 확정 192.168.100.104) — 실제 장비 IP 로 설정
+     port              : 502 (MODBUS TCP)
+     write_mode        : coil (권장, 개별 비트) | register (16bit 묶음)
+     output_coil_base  : 0x1000 (출력 코일 시작주소, 슬롯 위치 다르면 16씩 가산)
+     leds              : LED 이름↔출력비트 매핑 (vision=0 ~ status_blue=5)
 
 --------------------------------------------------------------------------------
  6. 알려진 이슈 / 미구현
@@ -189,6 +262,11 @@
            (CAN 통신·소프트웨어 시퀀스는 정상 확인됨)
    - 조치: 하드웨어 enable 배선 / 드라이브 DIN(enable) 설정 확인 필요 (진행 중).
 
- [미구현] 리프트 제어, 조명 제어 — 사양 확정 후 추가 예정.
+ [완료] 조명 LED 제어(crevis_io_driver) — C++ 전환 + 실장비 연동 검증 완료(v0.3, 2026-07-14).
+        Crevis GN-9289 = 192.168.100.104(로봇 eno1 192.168.100.100/24 대역), 502 정상.
+        LED 6개 개별 on/off + readback + 통합상태(/crevis/led_state_all) 동작 확인.
+        입력 레지스터(/crevis/di)는 1워드 수신 확인(전체 입력 IO 맵은 미확보 → 필요시 확장).
+
+ [미구현] 리프트 제어 — 사양 확정 후 추가 예정.
 
 ================================================================================

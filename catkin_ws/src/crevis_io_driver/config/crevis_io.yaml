@@ -1,0 +1,30 @@
+# Crevis GN-9289 (MODBUS TCP) I/O 드라이버 설정
+# crevis_io.launch 에서 crevis_io_node 의 private 파라미터로 로드된다.
+
+ip: "192.168.100.104"     # GN-9289 실제 IP (2026-07-14 현장 확정, eno1 192.168.100.100/24 대역, 502 OPEN)
+port: 502
+unit_id: 1
+timeout: 1.0
+publish_rate: 10.0        # 입력/상태 폴링 주기 [Hz]
+
+# ---- 출력(LED) ----
+write_mode: "coil"        # "coil"(권장, 개별 비트) | "register"(토비카식 16bit 묶음)
+output_coil_base: 0x1000      # 출력 코일 시작주소(첫 출력슬롯 기준). 앞 슬롯 있으면 16씩 가산
+output_register_base: 0x0800  # register 모드용 (16-DO 한 워드)
+
+# LED 매핑 (출력 IO.png / GT-225F OUT01 SLOT#01)
+leds:
+  - {name: "vision",       bit: 0}   # Y01.00 VISION LED
+  - {name: "front",        bit: 1}   # Y01.01 FRONT LED
+  - {name: "side",         bit: 2}   # Y01.02 SIDE LED
+  - {name: "status_red",   bit: 3}   # Y01.03 STATUS LED RED
+  - {name: "status_green", bit: 4}   # Y01.04 STATUS LED GREEN
+  - {name: "status_blue",  bit: 5}   # Y01.05 STATUS LED BLUE
+
+# ---- 입력(DI) 읽기 ----
+# 입력 IO 맵 미확보 → 레지스터 블록 raw 읽기. 맵 확보되면 base/count 조정.
+input_register_base: 0x0000
+input_register_count: 1
+
+# 노드 종료 시 LED 전부 OFF 할지 (기본 false: 상태 유지)
+leds_off_on_shutdown: false

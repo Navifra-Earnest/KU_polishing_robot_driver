@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>crevis_io_driver</name>
+  <version>1.0.0</version>
+  <description>Crevis GN-9289 (MODBUS TCP) I/O 드라이버 — LED 개별 ON/OFF 및 IO 데이터 읽기 (ROS1 Noetic, C++). Modbus TCP 를 순수 소켓으로 구현하여 외부 라이브러리 의존 없음.</description>
+  <maintainer email="eddie@navifra.com">navifra</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>roscpp</depend>
+  <depend>std_msgs</depend>
+</package>

@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-format \
     python3-catkin-tools \
     python3-rosdep \
+    python3-pip \
     ros-noetic-tf2-ros \
     can-utils \
     iproute2 \
@@ -27,6 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     vim \
     && rm -rf /var/lib/apt/lists/*
+
+# crevis_io_driver 런타임 의존 (Crevis GN-9289 MODBUS TCP)
+RUN pip3 install --no-cache-dir pyModbusTCP
 
 # --- 호스트 UID/GID(1000) 와 맞춘 비루트 사용자 (bind-mount 권한 문제 방지) ---
 RUN groupadd --gid ${USER_GID} ${USERNAME} \

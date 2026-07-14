@@ -10,7 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     can-utils \
     iproute2 \
     python3-catkin-tools \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# crevis_io_driver 런타임 의존 (Crevis GN-9289 MODBUS TCP)
+RUN pip3 install --no-cache-dir pyModbusTCP
 
 WORKDIR /catkin_ws
 COPY catkin_ws/src ./src
