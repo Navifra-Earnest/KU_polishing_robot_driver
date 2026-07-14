@@ -157,10 +157,21 @@
  * /crevis/led_state_all 예:
      "vision=1 front=0 side=0 status_red=1 status_green=0 status_blue=0 mask=0x09"
    (mask = 각 LED 비트 OR. vision=bit0 ~ status_blue=bit5). 6개를 한 번에 보고 싶을 때 사용.
- * STATUS LED 는 RGB 1개(빨/초/파 3채널) — 세 토픽을 조합하면 혼합색이 됩니다.
-   (예: red+green=노랑, red+blue=마젠타, 3개 모두=흰색)
+ * STATUS LED 는 RGB 1개(빨/초/파 3채널) — status_red/green/blue 세 토픽을 조합해 색을 냅니다.
+   순색/혼합색을 볼 때 안 쓰는 채널은 반드시 OFF (직전에 켠 값이 남아있으면 색이 섞임).
+
+     색            red   green  blue
+     -----------   ---   -----  ----
+     빨강          ON    off    off
+     초록          off   ON     off
+     파랑          off   off    ON
+     노랑          ON    ON     off
+     시안(청록)    off   ON     ON
+     마젠타(자홍)  ON    off    ON
+     흰색          ON    ON     ON
+
  * on/off(디지털 출력)만 지원하며 밝기(PWM 디밍)는 불가합니다.
- * VISION/FRONT/SIDE 는 각각 단색 조명 1개입니다.
+ * VISION/FRONT/SIDE 는 각각 단색 조명 1개입니다 (색 고정, on/off만).
 
  3.5 [리프트 제어]  — (예정, 미구현)
  --------------------------------------------------------------------------
