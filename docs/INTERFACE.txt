@@ -1,0 +1,194 @@
+================================================================================
+ KU Polishing Robot Driver — ROS 인터페이스 & 검증 가이드 (고객사 제공용)
+================================================================================
+ 작성: Navifra
+ 대상: 고객사(건국대) 연동 담당자
+ 저장소: https://github.com/Navifra-Earnest/KU_polishing_robot_driver
+
+ [문서 갱신 이력]
+   2026-07-14  v0.1  최초 작성. 구동부(cmd_vel/odom) + 배터리(BMS) 인터페이스 정리.
+                     리프트/조명은 미구현(예정). 모터 enable 이슈 별도 명시.
+   (이후 기능 추가 시 이 문서를 계속 갱신)
+
+--------------------------------------------------------------------------------
+ 0. 요약 (한눈에)
+--------------------------------------------------------------------------------
+ - ROS 버전 : ROS1 Noetic (Ubuntu 20.04, x86_64)
+ - 패키지명 : motor_driver
+ - 상위(고객사)에서 쓰는 표준 인터페이스:
+       입력  /cmd_vel      geometry_msgs/Twist        (주행 명령: 선속도 v, 각속도 w)
+       출력  /odom         nav_msgs/Odometry          (위치/자세/속도 + TF odom->base_link)
+       출력  /bms/state    sensor_msgs/BatteryState   (배터리 잔량/충전상태 등)
+ - 실행(로봇):   roslaunch motor_driver bringup.launch   (구동부)
+                 roslaunch motor_driver bms.launch        (배터리)
+
+--------------------------------------------------------------------------------
+ 1. 구성 개요
+--------------------------------------------------------------------------------
+ 로봇 PC(ROS1 Noetic)에서 아래 노드가 실행됩니다.
+
+   [motor_driver_node]  저수준 모터 드라이버 (CAN/CANopen CiA402, 구동모터 2개)
+   [base_controller]    표준 이동로봇 인터페이스 (cmd_vel <-> odom, 차동구동)
+   [bms_driver]         배터리(Daly BMS) 모니터링 (CAN 250K)
+
+ CAN 버스:
+   can0 : 500 kbps  — 구동 모터 (Node ID 1, 2)
+   can1 : 250 kbps  — Daly BMS
+
+ 상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"(/cmd_vel, /odom, /bms/state)만
+ 사용하면 됩니다. 저수준 토픽(/motor/*)은 디버그/직접제어용입니다.
+
+--------------------------------------------------------------------------------
+ 2. 실행 방법
+--------------------------------------------------------------------------------
+ (로봇 PC 에 SSH 접속 후)
+
+ 2.1 구동부 (드라이버 + 표준 인터페이스)
+     roslaunch motor_driver bringup.launch
+       -> motor_driver_node + base_controller 실행
+       -> /cmd_vel 구독, /odom 발행
+
+ 2.2 배터리 모니터링
+     roslaunch motor_driver bms.launch
+       -> /bms/state 발행
+
+ 2.3 (참고) 키보드 수동 조종 — 검증/디버그용
+     rosrun motor_driver teleop_keyboard.py
+       -> 키보드로 /cmd_vel 발행 (u/i/o 전진, j/l 회전, ,/. 후진, k 정지)
+
+--------------------------------------------------------------------------------
+ 3. ROS 인터페이스 (API)
+--------------------------------------------------------------------------------
+
+ 3.1 [구동부 — 상위 표준 인터페이스]  (권장, base_controller)
+ --------------------------------------------------------------------------
+ 방향  토픽         메시지 타입              내용
+ ----  ----------   ----------------------   --------------------------------------
+ 입력  /cmd_vel     geometry_msgs/Twist      linear.x  = 선속도 [m/s] (+전진)
+                                             angular.z = 각속도 [rad/s] (+반시계=좌회전)
+                                             (그 외 필드는 무시)
+ 출력  /odom        nav_msgs/Odometry        pose.pose      : 추정 위치(x,y)/자세(quaternion)
+                                             twist.twist    : 현재 v(linear.x), w(angular.z)
+                                             frame_id=odom, child_frame_id=base_link
+                                             + TF (odom -> base_link) 브로드캐스트
+
+ * 차동구동 역기구학은 base_controller 가 처리합니다.
+ * cmd_vel 미수신이 0.5s 지속되면 안전상 0속도로 정지합니다(연속 발행 권장, 예: 10Hz).
+
+ 3.2 [배터리 — BMS]  (bms_driver)
+ --------------------------------------------------------------------------
+ 방향  토픽          메시지 타입                내용
+ ----  -----------   ------------------------   ------------------------------------
+ 출력  /bms/state    sensor_msgs/BatteryState   배터리 상태 (약 2Hz)
+
+   주요 필드:
+     percentage           배터리 잔량 (0.0 ~ 1.0)   ← 예) 0.499 = 49.9%
+     power_supply_status  충전 상태:
+                            1 = CHARGING (충전 중)
+                            2 = DISCHARGING (방전 중)
+                            3 = NOT_CHARGING
+                            4 = FULL (완충)
+                            0 = UNKNOWN (데이터 미수신)
+     voltage              총 전압 [V]
+     current              전류 [A]  (+ 충전 / - 방전)
+     temperature          배터리 온도 [℃]
+     charge               잔여 용량 [Ah]
+     present              true = BMS 데이터 정상 수신 중
+     power_supply_health  1 = GOOD, 5 = 고장(알람) 감지, 0 = UNKNOWN
+
+ 3.3 [구동부 — 저수준 인터페이스]  (motor_driver_node, 디버그/직접제어)
+ --------------------------------------------------------------------------
+ 방향  토픽             메시지 타입                   내용
+ ----  --------------   ---------------------------   --------------------------------
+ 입력  /motor/cmd       std_msgs/Float32MultiArray    data=[motor1_rpm, motor2_rpm] 목표 rpm(모터축)
+ 출력  /motor/velocity  std_msgs/Float32MultiArray    data=[motor1_rpm, motor2_rpm] 실측 속도
+ 출력  /motor/status    std_msgs/Float32MultiArray    모터별 [전압V, 전류raw, statusword, error_code]
+                                                      (2모터 = 8개 원소, 순서=Node ID [1,2])
+ 출력  /motor/error     std_msgs/Bool                 true = 에러(드라이브 fault 또는 피드백 타임아웃)
+ 출력  /motor/alarm     std_msgs/String               알람 메시지(에러 코드 / MOTOR_FEEDBACK_TIMEOUT)
+
+ * 두 바퀴 모두 "양수 = 전진" 규약 (좌/우 방향 반전은 드라이버가 내부 처리).
+ * 정수값(statusword/error_code)은 float 에 담겨 발행됩니다 (수신 측에서 반올림하여 사용).
+
+ 3.4 [리프트 / 조명 제어]  — (예정, 미구현)
+ --------------------------------------------------------------------------
+ * 현재 미구현입니다. 사양(제어 방식/CAN 프로토콜 등) 확정 후 추가 예정.
+ * 인터페이스(토픽명/메시지 타입)는 확정되는 대로 본 문서에 반영합니다.
+   (예상: 리프트 위치/속도 명령·상태, 조명 on/off·밝기 등)
+
+--------------------------------------------------------------------------------
+ 4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)
+--------------------------------------------------------------------------------
+ 고객사에서 직접 ROS 통신/기능을 확인하는 절차입니다.
+ (같은 ROS master 를 바라봐야 합니다. 같은 로봇 PC 에서 실행하면 기본값으로 연결됩니다.
+  다른 PC 에서 접속 시 ROS_MASTER_URI=http://<로봇IP>:11311, 양쪽 ROS_IP 설정 필요)
+
+ 4.0 사전 준비
+     - 로봇 PC 에서 드라이버 실행:  roslaunch motor_driver bringup.launch
+     - 배터리 확인 시:             roslaunch motor_driver bms.launch
+     - 토픽 목록 확인:             rostopic list
+
+ 4.1 통신 확인 (토픽 존재/연결)
+     rostopic list
+       기대: /cmd_vel /odom /bms/state /motor/velocity /motor/status /motor/error ...
+     rostopic info /odom          # 발행자(publisher)가 base_controller 인지 확인
+     rostopic hz /odom            # 주기적으로 발행되는지 (약 50Hz)
+
+ 4.2 구동부(주행) 검증
+     [수신 확인] 새 터미널:
+       rostopic echo /odom
+     [명령 송신] 전진 0.2 m/s (안전한 공간 / 바퀴 들고):
+       rostopic pub -r 10 /cmd_vel geometry_msgs/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
+       기대: 로봇 전진, /odom 의 twist.linear.x ~ 0.2, position.x 증가
+     제자리 회전:
+       rostopic pub -r 10 /cmd_vel geometry_msgs/Twist "{linear: {x: 0.0}, angular: {z: 0.5}}"
+       기대: 반시계 회전, /odom 의 twist.angular.z ~ 0.5
+     정지:
+       Ctrl-C (또는 명령 중단) → 0.5s 후 자동 정지
+     [실측 속도]:
+       rostopic echo /motor/velocity   # 좌/우 바퀴 rpm
+
+ 4.3 배터리 상태 검증
+     rostopic echo /bms/state
+       확인 항목:
+         percentage           → 잔량 (0~1)
+         power_supply_status  → 1충전 / 2방전 / 4완충
+         voltage, current, temperature, present(true)
+     충전기 연결/분리 시 power_supply_status 가 1<->2 로 바뀌는지 확인.
+
+ 4.4 에러/상태 모니터링 검증
+     rostopic echo /motor/error    # 정상 false, 이상 시 true
+     rostopic echo /motor/alarm    # 에러 발생 시 메시지 출력
+     rostopic echo /motor/status   # 전압/전류/statusword/error_code
+
+ 4.5 리프트 / 조명  — (예정)
+     구현 후 시나리오 추가 예정.
+
+--------------------------------------------------------------------------------
+ 5. 파라미터 (참고)
+--------------------------------------------------------------------------------
+ config/base_controller.yaml (로봇 물리값 — 실측 확정값)
+     wheel_radius      : 바퀴 반경 [m]       (0.0825, = 지름 0.165m / 2)
+     wheel_separation  : 좌우 바퀴 간격 [m]  (0.65)
+     gear_ratio        : 모터축:바퀴 감속비  (9)
+ config/motor_driver.yaml
+     drive_motor_ids   : [1, 2]   (CANopen Node ID)
+     cmd_timeout_sec   : 1.0      (명령 미수신 시 정지)
+     feedback_timeout_sec : 0.5   (피드백 미수신 시 알람)
+ config/bms_driver.yaml
+     can_device        : can1 (250K)
+     design_capacity   : 배터리 설계 용량 [Ah] (설정 시 잔량 표시 보완)
+
+--------------------------------------------------------------------------------
+ 6. 알려진 이슈 / 미구현
+--------------------------------------------------------------------------------
+ [이슈] 모터 servo ON(enable) 실패
+   - 현상: 드라이버는 정상 동작하나, 드라이브가 operation-enable 시도 순간
+           내부 FAULT(에러코드 0x2601/0x2602 비트)로 진입하여 servo ON 이 안 됨.
+   - 원인 추정: 드라이브 측 하드웨어 enable/STO 입력 또는 드라이브 파라미터 설정.
+           (CAN 통신·소프트웨어 시퀀스는 정상 확인됨)
+   - 조치: 하드웨어 enable 배선 / 드라이브 DIN(enable) 설정 확인 필요 (진행 중).
+
+ [미구현] 리프트 제어, 조명 제어 — 사양 확정 후 추가 예정.
+
+================================================================================
