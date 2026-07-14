@@ -26,18 +26,19 @@ BmsDriver::BmsDriver(ros::NodeHandle& nh, ros::NodeHandle& pnh)
     host_addr_ = static_cast<uint8_t>(host_addr);
 
     battery_pub_ = nh_.advertise<sensor_msgs::BatteryState>("/bms/state", 10);
+    soc_pub_ = nh_.advertise<std_msgs::Float32>("/bms/soc", 10);  // 0~100 % (편의용)
 
     can_ = std::make_unique<CanInterface>();
     can_->register_callback([this](const can_frame& f) { this->canCallback(f); });
     if (!can_->open(can_device_)) {
-        ROS_ERROR("bms_driver: CAN 디바이스 열기 실패: %s (250K 로 up 됐는지 확인)", can_device_.c_str());
+        ROS_ERROR("bms_driver: failed to open CAN device %s (is it up at 250K?)", can_device_.c_str());
     }
 
     last_rx_ = ros::Time(0);
     poll_timer_ = nh_.createTimer(ros::Duration(1.0 / poll_rate_), &BmsDriver::pollTimer, this);
     publish_timer_ = nh_.createTimer(ros::Duration(1.0 / publish_rate_), &BmsDriver::publishTimer, this);
 
-    ROS_INFO("bms_driver 시작: dev=%s, poll=%.1fHz, /bms/state 발행 (Daly CAN 250K, 확장ID)",
+    ROS_INFO("bms_driver started: dev=%s, poll=%.1fHz, publishing /bms/state (Daly CAN 250K, extended ID)",
              can_device_.c_str(), poll_rate_);
 }
 
@@ -145,6 +146,11 @@ void BmsDriver::publishTimer(const ros::TimerEvent&)
     msg.power_supply_technology = sensor_msgs::BatteryState::POWER_SUPPLY_TECHNOLOGY_UNKNOWN;
 
     battery_pub_.publish(msg);
+
+    // 편의용 SOC (0~100 %) — BatteryState.percentage(0~1) 와 별개
+    std_msgs::Float32 soc_msg;
+    soc_msg.data = soc_;
+    soc_pub_.publish(soc_msg);
 }
 
 int main(int argc, char** argv)

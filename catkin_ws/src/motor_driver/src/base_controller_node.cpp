@@ -21,12 +21,12 @@ BaseController::BaseController(ros::NodeHandle& nh, ros::NodeHandle& pnh)
 
     // 필수 물리 파라미터 미설정 시 큰 경고 (placeholder 기본값으로는 cmd_vel/odom 부정확)
     if (!pnh_.hasParam("wheel_radius") || !pnh_.hasParam("wheel_separation") || !pnh_.hasParam("gear_ratio")) {
-        ROS_WARN("base_controller: wheel_radius/wheel_separation/gear_ratio 미설정 값이 있어 placeholder 기본값 사용. "
-                 "실제 로봇 값(config/base_controller.yaml)으로 설정 전까지 cmd_vel 변환·odom 은 부정확합니다.");
+        ROS_WARN("base_controller: wheel_radius/wheel_separation/gear_ratio not all set; using placeholder "
+                 "defaults. cmd_vel/odom will be inaccurate until real values are set (config/base_controller.yaml).");
     }
     if (wheel_radius_ <= 0.0 || wheel_separation_ <= 0.0 || gear_ratio_ == 0.0) {
-        ROS_ERROR("base_controller: wheel_radius>0, wheel_separation>0, gear_ratio!=0 이어야 합니다 "
-                  "(현재 r=%.4f, L=%.4f, G=%.4f). 잘못된 값이면 0속도로 발행됩니다.",
+        ROS_ERROR("base_controller: require wheel_radius>0, wheel_separation>0, gear_ratio!=0 "
+                  "(now r=%.4f, L=%.4f, G=%.4f). Publishing zero velocity on invalid values.",
                   wheel_radius_, wheel_separation_, gear_ratio_);
     }
 
@@ -40,7 +40,7 @@ BaseController::BaseController(ros::NodeHandle& nh, ros::NodeHandle& pnh)
     control_timer_ = nh_.createTimer(
         ros::Duration(1.0 / control_rate_), &BaseController::controlTimer, this);
 
-    ROS_INFO("base_controller 시작: r=%.3fm, L=%.3fm, G=%.2f, tf=%s, swap_lr=%s",
+    ROS_INFO("base_controller started: r=%.3fm, L=%.3fm, G=%.2f, tf=%s, swap_lr=%s",
              wheel_radius_, wheel_separation_, gear_ratio_,
              publish_tf_ ? "on" : "off", swap_lr_ ? "true" : "false");
 }

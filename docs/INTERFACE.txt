@@ -3,7 +3,6 @@
 ================================================================================
  작성: Navifra
  대상: 고객사(건국대) 연동 담당자
- 저장소: https://github.com/Navifra-Earnest/KU_polishing_robot_driver
 
  [문서 갱신 이력]
    2026-07-14  v0.1  최초 작성. 구동부(cmd_vel/odom) + 배터리(BMS) 인터페이스 정리.
@@ -103,9 +102,11 @@
  방향  토픽          메시지 타입                내용
  ----  -----------   ------------------------   ------------------------------------
  출력  /bms/state    sensor_msgs/BatteryState   배터리 상태 (약 2Hz)
+ 출력  /bms/soc      std_msgs/Float32           배터리 잔량 [%] 0~100 (편의용) ← 예) 49.9
 
-   주요 필드:
-     percentage           배터리 잔량 (0.0 ~ 1.0)   ← 예) 0.499 = 49.9%
+   /bms/state 주요 필드:
+     percentage           배터리 잔량 (0.0 ~ 1.0, ROS 표준)  ← 예) 0.499 = 49.9%
+                          (0~100 % 값이 필요하면 위 /bms/soc 사용)
      power_supply_status  충전 상태:
                             1 = CHARGING (충전 중)
                             2 = DISCHARGING (방전 중)

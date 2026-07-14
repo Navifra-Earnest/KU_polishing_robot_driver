@@ -2,6 +2,7 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/BatteryState.h>
+#include <std_msgs/Float32.h>
 #include <linux/can.h>
 
 #include "motor_driver/can_interface.hpp"
@@ -41,6 +42,7 @@ private:
     ros::NodeHandle nh_;
     ros::NodeHandle pnh_;
     ros::Publisher battery_pub_;
+    ros::Publisher soc_pub_;        // /bms/soc (std_msgs/Float32, 0~100 %)
     ros::Timer poll_timer_;
     ros::Timer publish_timer_;
     std::unique_ptr<CanInterface> can_;
