@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   nav_msgs
+  sensor_msgs
   tf2
   tf2_ros
 )
@@ -19,7 +20,7 @@ find_package(Threads REQUIRED)
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs tf2 tf2_ros
+  CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs sensor_msgs tf2 tf2_ros
 )
 
 include_directories(
@@ -46,7 +47,17 @@ target_link_libraries(base_controller_node
   ${catkin_LIBRARIES}
 )
 
-install(TARGETS motor_driver_node base_controller_node
+add_executable(bms_driver_node
+  src/bms_driver_node.cpp
+  src/can_interface.cpp
+)
+
+target_link_libraries(bms_driver_node
+  ${catkin_LIBRARIES}
+  Threads::Threads
+)
+
+install(TARGETS motor_driver_node base_controller_node bms_driver_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

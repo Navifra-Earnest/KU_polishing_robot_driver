@@ -1,0 +1,13 @@
+# bms_driver (Daly BMS CAN) 파라미터
+# ⚠️ Daly BMS 는 CAN 250K 다. 모터 드라이브(500K)와 다른 버스/비트레이트여야 한다.
+#    can_device 는 250K 로 up 된 인터페이스를 지정할 것.
+#      예) sudo ip link set can1 down; sudo ip link set can1 type can bitrate 250000; sudo ip link set can1 up
+
+can_device: "can1"        # BMS 가 연결된 CAN 인터페이스 (250K)
+frame_id: "bms"
+poll_rate: 2.0            # [Hz] BMS 요청 주기
+publish_rate: 2.0        # [Hz] /bms/state 발행 주기
+timeout_sec: 3.0         # 이 시간 동안 응답 없으면 present=false
+design_capacity: 0.0     # [Ah] 배터리 설계 용량 (0=미지정)
+bms_addr: 1              # BMS 주소 (0x01)
+host_addr: 64            # 상위기 주소 (0x40)

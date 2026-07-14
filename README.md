@@ -48,14 +48,17 @@ Polishing/
         │   ├── can_interface.cpp        # SocketCAN RAW 래퍼 (ROS 비의존)
         │   ├── motor_controller.cpp     # Kinco CiA402 상태머신/PDO/속도제어 (ROS 비의존)
         │   ├── motor_driver_node.cpp    # 저수준 노드: /motor/cmd·/motor/velocity·/motor/status …
-        │   └── base_controller_node.cpp # 상위 표준: /cmd_vel↔/odom (차동구동, TF)
+        │   ├── base_controller_node.cpp # 상위 표준: /cmd_vel↔/odom (차동구동, TF)
+        │   └── bms_driver_node.cpp      # Daly BMS: /bms/state (배터리 모니터링, CAN 250K)
         ├── scripts/teleop_keyboard.py   # 키보드 텔레옵
         ├── launch/
         │   ├── motor_driver.launch      # 저수준 드라이버만
-        │   └── bringup.launch           # 드라이버 + base_controller (턴키)
+        │   ├── bringup.launch           # 드라이버 + base_controller (턴키)
+        │   └── bms.launch               # BMS 드라이버 (별도 250K 버스)
         └── config/
             ├── motor_driver.yaml
-            └── base_controller.yaml     # 바퀴 반경/윤거/감속비 등 (실제값 설정 필요)
+            ├── base_controller.yaml     # 바퀴 반경/윤거/감속비 등 (실제값 설정 필요)
+            └── bms_driver.yaml          # BMS CAN 디바이스/폴링 등
 ```
 
 ---
@@ -71,6 +74,7 @@ Polishing/
 |------|------|------|------|
 | 입력 | `/cmd_vel` | `geometry_msgs/Twist` | 선속도 `linear.x` [m/s] + 각속도 `angular.z` [rad/s] |
 | 출력 | `/odom` | `nav_msgs/Odometry` | 추정 위치·자세·속도 (+ TF `odom`→`base_link`) |
+| 출력 | `/bms/state` | `sensor_msgs/BatteryState` | 배터리 잔량(`percentage`)·전압·전류·충전상태(`power_supply_status`) 등 (`bms_driver`) |
 
 > `base_controller` 는 `/cmd_vel` → 역기구학 → `/motor/cmd`(모터축 rpm), `/motor/velocity` → 적분 → `/odom` 변환.
 > 물리 파라미터(`wheel_radius`·`wheel_separation`·`gear_ratio`)를 `config/base_controller.yaml` 에 **실제 로봇 값으로 설정**해야 정확하다.
@@ -165,6 +169,21 @@ rosrun tf tf_echo odom base_link   # TF 확인
 ```
 > ⚠️ `config/base_controller.yaml` 의 `wheel_radius`·`wheel_separation`·`gear_ratio` 를
 > **실제 로봇 값으로 설정**해야 `/cmd_vel` 스케일과 `/odom` 이 정확하다 (미설정 시 노드가 경고).
+
+### 배터리 모니터링 (Daly BMS)
+```bash
+# ⚠️ Daly BMS 는 CAN 250K — 모터(500K)와 다른 버스여야 한다. BMS CAN 을 250K 로 up:
+sudo ip link set can1 down
+sudo ip link set can1 type can bitrate 250000
+sudo ip link set can1 up
+
+roslaunch motor_driver bms.launch          # config/bms_driver.yaml (can_device 기본 can1)
+rostopic echo /bms/state                   # sensor_msgs/BatteryState
+#   percentage(0~1)=잔량, power_supply_status(1충전/2방전/4완충), voltage/current/temperature ...
+```
+`bms_driver` 는 Daly 프로토콜(29비트 확장 ID)로 0x90/0x92/0x93/0x94/0x98 을 폴링해
+전압·전류·SOC·충전상태·온도·고장을 `/bms/state` 로 발행한다.
+> 극성/용량은 하드웨어에서 검증: `current` 부호(+충전/-방전), `design_capacity`(yaml) 설정.
 
 ---
 

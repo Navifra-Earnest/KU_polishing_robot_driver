@@ -7,8 +7,8 @@ gear_ratio: 9.0            # 모터축:바퀴 감속비 9:1  (가정)
                            #   /motor/cmd 는 모터축 rpm 이므로 필수.
                            #   (모터 1회전 = 바퀴 1/9 회전)
 
-max_linear_vel: 0.0        # [m/s]  0=제한 없음
-max_angular_vel: 0.0       # [rad/s] 0=제한 없음
+max_linear_vel: 2.0        # [m/s]  0=제한 없음
+max_angular_vel: 20.0       # [rad/s] 0=제한 없음
 control_rate: 50.0         # [Hz] /motor/cmd 재발행 주기 (cmd_timeout 안 걸리게 유지)
 cmd_vel_timeout: 0.5       # [s] 이 시간 동안 /cmd_vel 미수신 시 0속도 정지
 

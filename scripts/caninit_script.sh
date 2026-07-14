@@ -12,10 +12,10 @@ echo  "Load can module and can protocol"
 
 
 echo "CAN Controller driver"
-/sbin/insmod /home/navifra/Linux_Driver_AHC_20230901/AHC_drivers/CAN/can-ahc0512.ko
+/sbin/insmod /home/abc/can-ahc0512.ko
 
 /sbin/ip link set can0 up type can bitrate 500000 sample-point 0.6
-/sbin/ip link set can1 up type can bitrate 500000 sample-point 0.6
+/sbin/ip link set can1 up type can bitrate 250000 sample-point 0.6
 /sbin/ip link set can0 txqueuelen 1000
 /sbin/ip link set can1 txqueuelen 1000
 
