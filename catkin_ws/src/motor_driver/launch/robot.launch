@@ -1,0 +1,20 @@
+<launch>
+  <!-- =========================================================================
+       로봇 전체 브링업 — 서브시스템별 include (단일 roscore).
+       각 서브시스템 on/off 는 use_* 인자로 제어. 보통은 run_robot.sh 로 실행하며
+       (거기서 USE_* 변수를 true/false 로 설정). 직접 실행 시 기본은 모두 켜짐:
+          roslaunch motor_driver robot.launch                    # 전부
+          roslaunch motor_driver robot.launch use_lift:=false    # 리프트만 제외
+       ========================================================================= -->
+  <arg name="use_drive"  default="true"/>   <!-- motor_driver_node + base_controller -->
+  <arg name="use_bms"    default="true"/>   <!-- Daly BMS (can1) -->
+  <arg name="use_lift"   default="true"/>   <!-- MDROBOT 리프트 (RS485/COM1) -->
+  <arg name="use_crevis" default="true"/>   <!-- 조명 LED / Crevis I/O (MODBUS TCP) -->
+  <arg name="use_safety" default="true"/>   <!-- Safety PLC I/O (MODBUS TCP) -->
+
+  <include if="$(arg use_drive)"  file="$(find motor_driver)/launch/bringup.launch"/>
+  <include if="$(arg use_bms)"    file="$(find motor_driver)/launch/bms.launch"/>
+  <include if="$(arg use_lift)"   file="$(find motor_driver)/launch/lift.launch"/>
+  <include if="$(arg use_crevis)" file="$(find crevis_io_driver)/launch/crevis_io.launch"/>
+  <include if="$(arg use_safety)" file="$(find safety_io_driver)/launch/safety_io.launch"/>
+</launch>

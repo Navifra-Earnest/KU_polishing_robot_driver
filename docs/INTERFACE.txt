@@ -236,6 +236,14 @@ AP(무선) 네트워크:
    이 위치 피드백으로 상위/추가 로직에서 처리 가능.
  * 연결: RS485. 현재 USB-RS485(FTDI, /dev/ttyUSB0)로 검증됨. 네이티브 COM1(/dev/ttyS0)
    사용 시 RS485 A/B 극성만 맞추면 됨(드라이버 동일).
+ * 에러/상태 피드백: 별도 에러 토픽 없이 /lift/status 문자열에 포함된다.
+   형식:  "<connected|NO_DATA> pos=<위치> status=<OK 또는 알람비트>"
+     - connected = 정상 통신 / NO_DATA = 통신 두절(timeout)
+     - status=OK = 이상 없음
+     - status= 뒤 알람비트(공백 구분, 드라이브 상태비트 디코딩):
+         CTRL_FAIL / OVER_VOLT / OVER_TEMP / OVER_LOAD / HALL_FAIL / INV_VEL / STALL
+   예)  "connected pos=512 status=OVER_LOAD STALL"  (과부하 + 스톨 알람)
+        "NO_DATA pos=510 status=OK"                 (드라이브 응답 없음)
 
  3.6 [긴급정지 — 소프트웨어 E-stop]  (구동부 + 리프트 공통)
  --------------------------------------------------------------------------
@@ -251,6 +259,14 @@ AP(무선) 네트워크:
  * ⚠️ 이것은 소프트웨어 정지이며 안전인증(safety-rated) E-stop 이 아니다.
    물리 비상정지 버튼/안전회로는 Safety PLC(192.168.100.103) 하드 E-stop 으로 구성해야 하며,
    ROS /estop 은 상위 로직/원격에서의 소프트 정지 용도다. 둘의 연동 방식은 §6 참고(협의 필요).
+
+ [상태·에러 모니터링 종합]
+   각 서브시스템이 상태/에러를 ROS 토픽으로 발행하며, 이를 합쳐 알람·에러 피드백을 제공한다:
+     - 구동부  : /motor/error (Bool), /motor/alarm (String)  — 드라이브 fault / 피드백 타임아웃
+     - 리프트  : /lift/status (String)  — status=OK 또는 알람비트(OVER_LOAD/STALL 등), NO_DATA
+     - 배터리  : /bms/state.power_supply_health, /bms/state.present
+     - Safety PLC : /safety/input/*, /safety/output/*, /safety/state_all, /safety/connected
+     - 긴급정지 : /estop (구동부·리프트 공통)
 
  3.7 [Safety PLC I/O 및 충전 릴레이]  (safety_io_node, PILZ PNOZmulti 2)
  --------------------------------------------------------------------------

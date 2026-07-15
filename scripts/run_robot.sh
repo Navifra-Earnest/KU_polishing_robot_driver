@@ -1,20 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# 로봇 PC 수동/디버그 실행 래퍼 (ROS1 Noetic)
-#   프로덕션은 systemd(scripts/systemd/motor_driver.service)로 돌린다.
-#   이 스크립트는 수동/디버그 실행용 얇은 래퍼다.
-#
-#   역할 분담:
-#     - CAN(can0) up  : caninit.service 담당 (이 스크립트는 CAN 을 건드리지 않음)
-#     - 환경 source    : ~/.bashrc 에 넣어도 되나, 비대화형 셸 대비로 여기서도 방어적 source
-#
-# 사용:  bash ~/navifra/run_robot.sh
-# 환경변수:
-#   INSTALL_DIR     기본 $HOME/navifra/install
-#   ROS_MASTER_URI  기본 http://localhost:11311 (고객사 master 사용 시 그 주소)
-#   ROS_IP          이 로봇의 IP (다른 머신과 연동 시)
-#   CAN_DEVICE      up 여부 확인용 인터페이스명 (기본 can0)
-# =============================================================================
 set -e
 
 INSTALL_DIR="${INSTALL_DIR:-$HOME/navifra/install}"
@@ -46,7 +30,24 @@ fi
 
 echo "[run_robot] ROS_MASTER_URI=$ROS_MASTER_URI  INSTALL=${INSTALL_DIR}  CAN=${CAN_DEV}"
 
-# --- 실행 ---
-# bringup.launch = 저수준 드라이버 + base_controller(cmd_vel/odom).
-# 저수준만 원하면 motor_driver.launch 로 바꾼다.
-exec roslaunch motor_driver bringup.launch
+# =============================================================================
+#  실행할 서브시스템 (사용: true / 미사용: false)
+#  ▶ 필요 없는 서브시스템은 값을 false 로 바꾸세요.
+#     (편집:  nano ~/navifra/run_robot.sh   →  저장 Ctrl+O, 종료 Ctrl+X)
+# =============================================================================
+USE_DRIVE=true      # 구동부    : 모터 + 주행(/cmd_vel, /odom)
+USE_BMS=true        # 배터리    : BMS 모니터링(/bms/state)        [CAN can1]
+USE_LIFT=true       # 리프트    : 상승/하강(/lift/*)              [RS485 COM1]
+USE_CREVIS=true     # 조명      : Crevis LED(/crevis/*)           [이더넷]
+USE_SAFETY=true     # Safety PLC: 안전 I/O·충전(/safety/*)        [이더넷]
+# =============================================================================
+
+echo "[run_robot] drive=$USE_DRIVE bms=$USE_BMS lift=$USE_LIFT crevis=$USE_CREVIS safety=$USE_SAFETY"
+
+# 켜둔 서브시스템만 단일 roscore 로 실행 (robot.launch 통합).
+exec roslaunch motor_driver robot.launch \
+    use_drive:=$USE_DRIVE \
+    use_bms:=$USE_BMS \
+    use_lift:=$USE_LIFT \
+    use_crevis:=$USE_CREVIS \
+    use_safety:=$USE_SAFETY
