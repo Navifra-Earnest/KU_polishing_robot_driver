@@ -23,8 +23,13 @@
                      ⚠️ 소프트웨어 정지이며 안전인증(safety-rated) 아님 — Safety PLC 하드
                      E-stop 과의 관계는 협의 필요(§6).
    2026-07-14  v0.6  Safety PLC 인터페이스 추가 — safety_io_driver (PILZ PNOZ m B0.1
-                     + PNOZ m ES ETH, MODBUS TCP). 물리 I/O 개별 상태 및 충전 릴레이
-                     ON/OFF 인터페이스 반영.
+                     + PNOZ m ES ETH, MODBUS TCP). 물리 I/O 개별 상태 인터페이스 반영.
+   2026-07-15  v0.7  충전 릴레이 인터페이스를 Crevis Y01.06으로 이관 — Crevis 명령 및
+                     출력 상태 토픽 추가, Safety PLC 충전 제어/상태 매핑 제거.
+   2026-07-15  v0.8  Safety PLC IM16 BRAKE RELEASE 주소 수정 — Config I/O 상태 주소
+                     0x4010에서 읽고 /safety/output/brake_release로 발행.
+   2026-07-15  v0.9  충전 상태 확인 절차 추가 — Crevis 충전 명령 후 릴레이 readback을
+                     확인하고, /bms/state.current가 양수이면 실제 충전 중으로 판정.
    (이후 기능 추가 시 이 문서를 계속 갱신)
 
 --------------------------------------------------------------------------------
@@ -37,13 +42,13 @@
        출력  /odom           nav_msgs/Odometry          (위치/자세/속도 + TF odom->base_link)
        출력  /bms/state      sensor_msgs/BatteryState   (배터리 잔량/충전상태 등)
        입력  /crevis/led/*   std_msgs/Bool              (조명 LED 개별 on/off, 6개)
+       입력  /crevis/charging std_msgs/Bool             (Crevis 충전 릴레이 ON/OFF 요청)
+       출력  /crevis/charge_port_on std_msgs/Bool       (Crevis 충전 릴레이 실제 출력 상태)
        입력  /lift/command   std_msgs/String            (리프트: "up"/"down"/"stop")
        출력  /lift/position  std_msgs/Int32             (리프트 위치, 홀 카운트 증분)
        입력  /estop          std_msgs/Bool              (긴급정지: true=정지, false=해제)
        출력  /safety/input/* std_msgs/Bool              (Safety PLC 물리 입력 raw 상태)
        출력  /safety/output/* std_msgs/Bool             (Safety PLC 물리 출력 raw 상태)
-       입력  /safety/charging std_msgs/Bool             (충전 ON/OFF 요청)
-       출력  /safety/output/charge_port_on std_msgs/Bool (충전 릴레이 실제 상태 확인)
  - 실행(로봇):   roslaunch motor_driver bringup.launch    (구동부)
                  roslaunch motor_driver bms.launch        (배터리)
                  roslaunch crevis_io_driver crevis_io.launch  (조명 LED / Crevis I/O)
@@ -58,9 +63,9 @@
    [motor_driver_node]  저수준 모터 드라이버 (CAN/CANopen CiA402, 구동모터 2개)
    [base_controller]    표준 이동로봇 인터페이스 (cmd_vel <-> odom, 차동구동)
    [bms_driver]         배터리(Daly BMS) 모니터링 (CAN 250K)
-   [crevis_io_node]     조명 LED / 디지털 I/O (Crevis GN-9289, MODBUS TCP 이더넷)
+   [crevis_io_node]     조명 LED / 충전 릴레이 / 디지털 I/O (Crevis GN-9289, MODBUS TCP 이더넷)
    [lift_driver]        리프트 제어 (MDROBOT MD, RS485)
-   [safety_io_node]     Safety PLC I/O 및 충전 릴레이 제어 (PILZ PNOZmulti 2, MODBUS TCP)
+   [safety_io_node]     Safety PLC I/O 상태 모니터링 (PILZ PNOZmulti 2, MODBUS TCP)
 
  CAN 버스:
    can0 : 500 kbps  — 구동 모터 (Node ID 1, 2)
@@ -85,8 +90,9 @@ AP(무선) 네트워크:
   ※ AP 설정 시 위 대역 참고 바랍니다.
 
  상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"
- (/cmd_vel, /odom, /bms/state, /crevis/led/*, /lift/command·/lift/position,
- /safety/input/*, /safety/output/*, /safety/charging)만
+ (/cmd_vel, /odom, /bms/state, /crevis/led/*, /crevis/charging,
+ /lift/command·/lift/position,
+ /safety/input/*, /safety/output/*)만
  사용하면 됩니다. 저수준 토픽(/motor/*, /lift/velocity_cmd)은 디버그/직접제어용입니다.
 
 --------------------------------------------------------------------------------
@@ -107,10 +113,11 @@ AP(무선) 네트워크:
      rosrun motor_driver teleop_keyboard.py
        -> 키보드로 /cmd_vel 발행 (u/i/o 전진, j/l 회전, ,/. 후진, k 정지)
 
- 2.4 조명 LED / Crevis I/O
+ 2.4 조명 LED·충전 릴레이 / Crevis I/O
      roslaunch crevis_io_driver crevis_io.launch
-       -> /crevis/led/* 구독(LED on/off),
-          /crevis/led_state/*·/crevis/led_state_all·/crevis/connected·/crevis/di 발행
+       -> /crevis/led/*·/crevis/charging 구독(LED/충전 릴레이 on/off),
+          /crevis/led_state/*·/crevis/led_state_all·/crevis/charge_port_on·
+          /crevis/connected·/crevis/di 발행
        (Crevis GN-9289 IP 는 config/crevis_io.yaml 의 ip 파라미터와 일치해야 함)
 
  2.5 리프트 제어
@@ -122,7 +129,6 @@ AP(무선) 네트워크:
  2.6 Safety PLC I/O
      roslaunch safety_io_driver safety_io.launch
        -> /safety/input/*·/safety/output/*·/safety/state_all·/safety/connected 발행
-       -> /safety/charging 구독(충전 릴레이 ON/OFF)
        (PILZ PNOZ m ES ETH IP 기본값: 192.168.100.103, MODBUS TCP 502)
 
 --------------------------------------------------------------------------------
@@ -181,7 +187,7 @@ AP(무선) 네트워크:
  * 두 바퀴 모두 "양수 = 전진" 규약 (좌/우 방향 반전은 드라이버가 내부 처리).
  * 정수값(statusword/error_code)은 float 에 담겨 발행됩니다 (수신 측에서 반올림하여 사용).
 
- 3.4 [조명 LED 제어]  (crevis_io_node, Crevis GN-9289 MODBUS TCP)
+ 3.4 [조명 LED·충전 릴레이 제어]  (crevis_io_node, Crevis GN-9289 MODBUS TCP)
  --------------------------------------------------------------------------
  LED 6개를 각각 독립 토픽으로 on/off 합니다. (data=true → ON, false → OFF)
 
@@ -193,6 +199,24 @@ AP(무선) 네트워크:
  입력  /crevis/led/status_red      std_msgs/Bool    STATUS LED — 빨강
  입력  /crevis/led/status_green    std_msgs/Bool    STATUS LED — 초록
  입력  /crevis/led/status_blue     std_msgs/Bool    STATUS LED — 파랑
+
+ [충전 릴레이]
+ 방향  토픽                        메시지 타입      대상
+ ----  -------------------------   -------------    ----------------------------
+ 입력  /crevis/charging            std_msgs/Bool    Y01.06 충전 릴레이(true=ON)
+ 출력  /crevis/charge_port_on      std_msgs/Bool    Y01.06 실제 출력 상태(readback)
+
+ [충전 동작 및 상태 판정]
+   /crevis/charging=true             충전 릴레이 ON 명령
+          -> /crevis/charge_port_on=true
+                                      Crevis Y01.06 릴레이 출력 ON 확인
+          -> /bms/state.current > 0
+                                      BMS에 충전 전류가 유입되므로 실제 충전 중으로 판정
+
+ * /crevis/charge_port_on=true는 릴레이 출력 상태이며, 이것만으로 실제 충전 중이라고
+   판단하지 않습니다. 최종 충전 여부는 /bms/state.current가 양수인지 확인합니다.
+ * 릴레이가 ON인데 current가 0 이하이면 충전기 연결, 접점, BMS 상태 및 완충 여부를
+   확인합니다.
 
  [상태 읽기]
  방향  토픽                        메시지 타입                내용
@@ -268,7 +292,7 @@ AP(무선) 네트워크:
      - Safety PLC : /safety/input/*, /safety/output/*, /safety/state_all, /safety/connected
      - 긴급정지 : /estop (구동부·리프트 공통)
 
- 3.7 [Safety PLC I/O 및 충전 릴레이]  (safety_io_node, PILZ PNOZmulti 2)
+ 3.7 [Safety PLC I/O]  (safety_io_node, PILZ PNOZmulti 2)
  --------------------------------------------------------------------------
  Safety PLC의 물리 I/O 상태를 개별 Bool 토픽으로 발행합니다. 모든 값은 PLC 단자의
  raw 논리 상태이며 true만으로 안전 상태라고 판단하면 안 됩니다.
@@ -290,18 +314,17 @@ AP(무선) 네트워크:
  ----  --------------------------------------------   -------  ----------------------
  출력  /safety/output/motor_sto_01sr                 O0       01SR MOTOR STO
  출력  /safety/output/motor_sto_02sr                 O1       02SR MOTOR STO
- 출력  /safety/output/charge_port_on                 O2       CHARGE PORT ON
  출력  /safety/output/traction_motor_power_on        O3       TRACTION MOTOR POWER
+ 출력  /safety/output/brake_release                  IM16     BRAKE RELEASE (FC02 0x4010)
 
- [통합 상태 및 명령]
+ * IM16은 Auxiliary Output이지만 Config I/O 상태는 input process image의 0x4010에서
+   읽습니다. 토픽은 신호 방향에 따라 /safety/output 아래에 발행합니다.
+
+ [통합 상태]
  방향  토픽                    메시지 타입       내용
  ----  ---------------------   ---------------   --------------------------------------
  출력  /safety/connected       std_msgs/Bool     Safety PLC 연결 상태(true=정상)
  출력  /safety/state_all       std_msgs/String   위 개별 I/O 상태를 한 줄로 표시(편의용)
- 입력  /safety/charging        std_msgs/Bool     true=ON 요청, false=OFF 요청
-
- * 충전 릴레이의 실제 ON/OFF 상태는 /safety/output/charge_port_on으로 확인합니다.
- * 기본 1초 watchdog 사용 시 통신이 중단되면 충전 릴레이가 OFF됩니다.
 
 --------------------------------------------------------------------------------
  4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)
@@ -366,6 +389,15 @@ AP(무선) 네트워크:
      [상태 readback]:
        rostopic echo /crevis/led_state/front       # 개별
        rostopic echo /crevis/led_state_all          # 6개 통합 한 줄(mask 포함)
+     [충전 릴레이 켜기/끄기]:
+       rostopic pub -1 /crevis/charging std_msgs/Bool "data: true"
+       rostopic echo /crevis/charge_port_on          # Y01.06 ON이면 true
+       rostopic echo /bms/state
+         기대: charge_port_on=true 확인 후 current > 0 A이면 실제 충전 중
+               (power_supply_status=1 CHARGING도 함께 확인)
+       rostopic pub -1 /crevis/charging std_msgs/Bool "data: false"
+       rostopic echo /crevis/charge_port_on          # Y01.06 OFF이면 false
+       rostopic echo /bms/state                      # 충전 전류가 유입되지 않는지 확인
      * 명령은 성공(로그 ON/OFF)인데 LED 가 안 켜지면 배선/전원 또는 Crevis IP 확인.
      * 명령한 색과 실제 켜지는 LED/색이 다르면 crevis_io.yaml 의 leds 비트매핑을 배선에 맞게 조정.
 
@@ -391,21 +423,15 @@ AP(무선) 네트워크:
      * /estop 은 sticky(자동 해제 없음) — 반드시 false 를 명시 발행해야 재구동 가능.
      * 물리 비상버튼은 Safety PLC 하드 E-stop 으로 별도 구성(§3.6·§6). /estop 은 소프트 정지.
 
- 4.8 Safety PLC I/O 및 충전 릴레이 검증  (safety_io_driver)
+ 4.8 Safety PLC I/O 검증  (safety_io_driver)
      [상태 모니터링]
        roslaunch safety_io_driver safety_io.launch
        rostopic echo /safety/connected
        rostopic echo /safety/state_all
        rostopic echo /safety/input/safety_emergency_1b
        rostopic echo /safety/input/safety_bumper_front
-       rostopic echo /safety/output/charge_port_on
+       rostopic echo /safety/output/brake_release
        기대: /safety/connected=true, PLC 표시창/실제 스위치와 개별 Bool 상태 일치
-
-     [충전 릴레이 검증]
-       rostopic pub -1 /safety/charging std_msgs/Bool "data: true"
-       rostopic echo /safety/output/charge_port_on     # 릴레이 ON이면 true
-       rostopic pub -1 /safety/charging std_msgs/Bool "data: false"
-       rostopic echo /safety/output/charge_port_on     # 릴레이 OFF이면 false
 
 --------------------------------------------------------------------------------
  5. 파라미터 (참고)
@@ -428,6 +454,9 @@ AP(무선) 네트워크:
      write_mode        : coil (권장, 개별 비트) | register (16bit 묶음)
      output_coil_base  : 0x1000 (출력 코일 시작주소, 슬롯 위치 다르면 16씩 가산)
      leds              : LED 이름↔출력비트 매핑 (vision=0 ~ status_blue=5)
+     charging_topic    : /crevis/charging
+     charging_bit      : 6 (Y01.06, coil 0x1006)
+     charging_off_on_shutdown : 정상 노드 종료 시 충전 릴레이 OFF (기본 true)
  config/lift_driver.yaml
      port              : RS485 포트 (/dev/ttyS0 = COM1, USB-485 시 /dev/ttyUSB0)
      baud              : 19200
@@ -439,8 +468,8 @@ AP(무선) 네트워크:
      port                     : 502 (MODBUS TCP)
      unit_id                  : 1
      publish_rate             : I/O 상태 poll/발행 주기 [Hz] (기본 10.0)
-     charging_watchdog_ms     : 통신 중단 시 충전 릴레이 OFF 시간(기본 1000 ms)
-     charging_off_on_shutdown : 정상 노드 종료 시 충전 릴레이 OFF
+     config_io_outputs        : Config I/O 출력 이름↔input process image 비트 매핑
+                                (brake_release=16, FC02 0x4010)
 
 --------------------------------------------------------------------------------
  6. 알려진 이슈 / 미구현

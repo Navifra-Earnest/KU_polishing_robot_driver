@@ -1,6 +1,6 @@
 // crevis_io_node.cpp — Crevis GN-9289 (MODBUS TCP) I/O 드라이버 (ROS1 Noetic, C++)
 //
-// LED 6개를 개별 토픽으로 ON/OFF 하고, Crevis 입력/출력 상태를 폴링하여 퍼블리시한다.
+// LED 6개와 충전 릴레이를 개별 토픽으로 ON/OFF 하고, Crevis 입력/출력 상태를 폴링하여 퍼블리시한다.
 // Modbus TCP 는 외부 라이브러리(libmodbus 등) 없이 순수 소켓으로 구현 → 납품 시 추가 의존성 없음.
 //
 // [토픽]
@@ -11,9 +11,11 @@
 //     /crevis/led/status_red    Y01.03 STATUS LED RED
 //     /crevis/led/status_green  Y01.04 STATUS LED GREEN
 //     /crevis/led/status_blue   Y01.05 STATUS LED BLUE
+//     /crevis/charging          Y01.06 CHARGING RELAY
 //   퍼블리시(읽기)
 //     /crevis/led_state/<name>  std_msgs/Bool             출력 코일 readback (실제 상태, 개별)
 //     /crevis/led_state_all     std_msgs/String           LED 6개 통합 상태 한 줄 (name=0/1 ... mask=0x..)
+//     /crevis/charge_port_on    std_msgs/Bool             충전 릴레이 출력 코일 readback
 //     /crevis/di                std_msgs/Int32MultiArray  입력 레지스터 raw (16bit 워드)
 //     /crevis/connected         std_msgs/Bool             Modbus 연결 상태
 //
@@ -21,7 +23,8 @@
 //   - 출력 image BIT (coil)  : 0x1000~  (func 1/5/15)  ← LED 개별 제어에 사용
 //   - 출력 image REGISTER    : 0x0800~  (func 3/16)    ← 16bit 묶음(register 모드, 토비카식)
 //   - 입력 image REGISTER    : 0x0000~  (func 3/4)
-//   IO 맵(출력 IO.png / GT-225F OUT01 SLOT#01): Y01.00~Y01.05 = 위 LED 6개.
+//   IO 맵(출력 IO.png / GT-225F OUT01 SLOT#01): Y01.00~Y01.05 = 위 LED 6개,
+//   Y01.06 = 충전 릴레이.
 //   → 첫 출력슬롯이면 coil 0x1000 = Y01.00. 앞에 다른 출력슬롯이 있으면
 //     output_coil_base 를 16(=한 슬롯 16DO)씩 가산해서 맞춘다.
 
@@ -213,18 +216,25 @@ public:
     pnh.param("input_register_base",  in_reg_base_, 0x0000);
     pnh.param("input_register_count", in_reg_count_, 1);
     pnh.param("leds_off_on_shutdown", leds_off_on_shutdown_, false);
+    pnh.param<std::string>("charging_topic", charging_topic_, std::string("/crevis/charging"));
+    pnh.param("charging_bit", charging_bit_, 6);
+    pnh.param("charging_off_on_shutdown", charging_off_on_shutdown_, true);
 
     loadLeds(pnh);
     readback_nb_ = 1;
     for (const auto& l : leds_) readback_nb_ = std::max(readback_nb_, l.bit + 1);
+    readback_nb_ = std::max(readback_nb_, charging_bit_ + 1);
+    if (write_mode_ == "register") readback_nb_ = std::max(readback_nb_, 16);
 
     client_.reset(new ModbusTcp(ip_, port_, unit_, timeout_));
     out_shadow_ = 0;
+    out_shadow_valid_ = false;
 
     // 퍼블리셔
     for (const auto& l : leds_)
       pub_state_[l.name] = nh.advertise<std_msgs::Bool>("/crevis/led_state/" + l.name, 1, true /*latch*/);
     pub_state_all_ = nh.advertise<std_msgs::String>("/crevis/led_state_all", 1, true /*latch*/);
+    pub_charge_port_on_ = nh.advertise<std_msgs::Bool>("/crevis/charge_port_on", 1, true /*latch*/);
     pub_di_        = nh.advertise<std_msgs::Int32MultiArray>("/crevis/di", 1);
     pub_conn_      = nh.advertise<std_msgs::Bool>("/crevis/connected", 1, true /*latch*/);
 
@@ -236,12 +246,15 @@ public:
         "/crevis/led/" + name, 10,
         boost::bind(&CrevisIONode::ledCb, this, name, bit, _1)));
     }
+    charging_sub_ = nh.subscribe<std_msgs::Bool>(charging_topic_, 10,
+                                                  &CrevisIONode::chargingCb, this);
 
     std::string leds_desc;
     for (size_t i = 0; i < leds_.size(); ++i)
       leds_desc += (i ? ", " : "") + leds_[i].name + "@" + std::to_string(leds_[i].bit);
-    ROS_INFO("[crevis_io] %s:%d unit=%d mode=%s coil_base=0x%X leds=[%s]",
-             ip_.c_str(), port_, unit_, write_mode_.c_str(), coil_base_, leds_desc.c_str());
+    ROS_INFO("[crevis_io] %s:%d unit=%d mode=%s coil_base=0x%X leds=[%s] charging=%s@%d",
+             ip_.c_str(), port_, unit_, write_mode_.c_str(), coil_base_, leds_desc.c_str(),
+             charging_topic_.c_str(), charging_bit_);
 
     timer_ = nh.createTimer(ros::Duration(1.0 / std::max(rate_hz_, 0.1)),
                             &CrevisIONode::poll, this);
@@ -269,28 +282,51 @@ private:
 
   void ledCb(const std::string& name, int bit, const std_msgs::Bool::ConstPtr& msg)
   {
-    setLed(name, bit, msg->data);
+    setOutput("LED " + name, bit, msg->data);
   }
 
-  void setLed(const std::string& name, int bit, bool on)
+  void chargingCb(const std_msgs::Bool::ConstPtr& msg)
+  {
+    setOutput("charging relay", charging_bit_, msg->data);
+  }
+
+  bool syncOutputShadowLocked()
+  {
+    std::vector<uint8_t> coils;
+    if (!client_->readCoils(static_cast<uint16_t>(coil_base_), 16, coils)) return false;
+
+    out_shadow_ = 0;
+    for (size_t bit = 0; bit < coils.size() && bit < 16; ++bit)
+      if (coils[bit]) out_shadow_ |= (1 << bit);
+    out_shadow_valid_ = true;
+    return true;
+  }
+
+  bool writeOutputLocked(int bit, bool on)
+  {
+    if (bit < 0 || bit >= 16) return false;
+    if (write_mode_ == "register")
+    {
+      if (!out_shadow_valid_ && !syncOutputShadowLocked()) return false;
+      if (on) out_shadow_ |=  (1 << bit);
+      else    out_shadow_ &= ~(1 << bit);
+      const bool ok = client_->writeSingleRegister(static_cast<uint16_t>(reg_base_),
+                                                    static_cast<uint16_t>(out_shadow_ & 0xFFFF));
+      if (!ok) out_shadow_valid_ = false;
+      return ok;
+    }
+    return client_->writeSingleCoil(static_cast<uint16_t>(coil_base_ + bit), on);
+  }
+
+  void setOutput(const std::string& name, int bit, bool on)
   {
     bool ok = false;
     {
       std::lock_guard<std::mutex> lk(lock_);
-      if (write_mode_ == "register")
-      {
-        if (on) out_shadow_ |=  (1 << bit);
-        else    out_shadow_ &= ~(1 << bit);
-        ok = client_->writeSingleRegister(static_cast<uint16_t>(reg_base_),
-                                          static_cast<uint16_t>(out_shadow_ & 0xFFFF));
-      }
-      else  // coil (권장)
-      {
-        ok = client_->writeSingleCoil(static_cast<uint16_t>(coil_base_ + bit), on);
-      }
+      ok = writeOutputLocked(bit, on);
     }
-    if (ok) ROS_INFO("[crevis_io] LED %s -> %s", name.c_str(), on ? "ON" : "OFF");
-    else    ROS_WARN("[crevis_io] LED %s write FAILED (연결/주소 확인)", name.c_str());
+    if (ok) ROS_INFO("[crevis_io] %s -> %s", name.c_str(), on ? "ON" : "OFF");
+    else    ROS_WARN("[crevis_io] %s write FAILED (연결/주소 확인)", name.c_str());
   }
 
   void poll(const ros::TimerEvent&)
@@ -303,6 +339,13 @@ private:
       if (!client_->isOpen()) client_->openSock();
       have_coils = client_->readCoils(static_cast<uint16_t>(coil_base_),
                                       static_cast<uint16_t>(readback_nb_), coils);
+      if (have_coils && write_mode_ == "register")
+      {
+        out_shadow_ = 0;
+        for (size_t bit = 0; bit < coils.size() && bit < 16; ++bit)
+          if (coils[bit]) out_shadow_ |= (1 << bit);
+        out_shadow_valid_ = true;
+      }
       if (in_reg_count_ > 0)
         have_regs = client_->readInputRegisters(static_cast<uint16_t>(in_reg_base_),
                                                 static_cast<uint16_t>(in_reg_count_), regs);
@@ -326,6 +369,10 @@ private:
       }
       char m[24]; std::snprintf(m, sizeof(m), " mask=0x%02X", mask);
       std_msgs::String all; all.data = s + m; pub_state_all_.publish(all);
+
+      std_msgs::Bool charging;
+      charging.data = charging_bit_ < static_cast<int>(coils.size()) && coils[charging_bit_];
+      pub_charge_port_on_.publish(charging);
     }
     if (have_regs)
     {
@@ -338,29 +385,45 @@ private:
   void onShutdown()
   {
     std::lock_guard<std::mutex> lk(lock_);
-    if (leds_off_on_shutdown_)
+    if (write_mode_ == "register" && (leds_off_on_shutdown_ || charging_off_on_shutdown_))
     {
-      if (write_mode_ == "register") client_->writeSingleRegister(static_cast<uint16_t>(reg_base_), 0);
-      else for (const auto& l : leds_) client_->writeSingleCoil(static_cast<uint16_t>(coil_base_ + l.bit), false);
+      if (out_shadow_valid_ || syncOutputShadowLocked())
+      {
+        if (leds_off_on_shutdown_)
+          for (const auto& l : leds_) out_shadow_ &= ~(1 << l.bit);
+        if (charging_off_on_shutdown_) out_shadow_ &= ~(1 << charging_bit_);
+        client_->writeSingleRegister(static_cast<uint16_t>(reg_base_),
+                                     static_cast<uint16_t>(out_shadow_ & 0xFFFF));
+      }
+    }
+    else if (write_mode_ != "register")
+    {
+      if (leds_off_on_shutdown_)
+        for (const auto& l : leds_)
+          client_->writeSingleCoil(static_cast<uint16_t>(coil_base_ + l.bit), false);
+      if (charging_off_on_shutdown_)
+        client_->writeSingleCoil(static_cast<uint16_t>(coil_base_ + charging_bit_), false);
     }
     client_->closeSock();
   }
 
   // params
-  std::string ip_, write_mode_;
-  int  port_, coil_base_, reg_base_, in_reg_base_, in_reg_count_;
+  std::string ip_, write_mode_, charging_topic_;
+  int  port_, coil_base_, reg_base_, in_reg_base_, in_reg_count_, charging_bit_;
   uint8_t unit_;
   double timeout_, rate_hz_;
-  bool leds_off_on_shutdown_;
+  bool leds_off_on_shutdown_, charging_off_on_shutdown_;
   std::vector<Led> leds_;
   int readback_nb_;
   int out_shadow_;
+  bool out_shadow_valid_;
 
   std::unique_ptr<ModbusTcp> client_;
   std::mutex lock_;
 
   std::map<std::string, ros::Publisher> pub_state_;
-  ros::Publisher pub_state_all_, pub_di_, pub_conn_;
+  ros::Publisher pub_state_all_, pub_charge_port_on_, pub_di_, pub_conn_;
+  ros::Subscriber charging_sub_;
   std::vector<ros::Subscriber> subs_;
   ros::Timer timer_;
 };

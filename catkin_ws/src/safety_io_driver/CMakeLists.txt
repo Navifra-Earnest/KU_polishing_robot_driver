@@ -20,11 +20,6 @@ include_directories(
 add_executable(safety_io_node src/safety_io_node.cpp)
 target_link_libraries(safety_io_node ${catkin_LIBRARIES})
 
-catkin_install_python(PROGRAMS
-  scripts/diagnose_virtual_input.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
 install(TARGETS safety_io_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

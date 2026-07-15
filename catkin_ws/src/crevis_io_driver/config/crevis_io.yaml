@@ -21,6 +21,11 @@ leds:
   - {name: "status_green", bit: 4}   # Y01.04 STATUS LED GREEN
   - {name: "status_blue",  bit: 5}   # Y01.05 STATUS LED BLUE
 
+# 충전 릴레이 (LED와 별도 토픽으로 제어)
+charging_topic: "/crevis/charging"
+charging_bit: 6                       # Y01.06 / coil 0x1006 CHARGING RELAY
+charging_off_on_shutdown: true        # 정상 노드 종료 시 릴레이 OFF
+
 # ---- 입력(DI) 읽기 ----
 # 입력 IO 맵 미확보 → 레지스터 블록 raw 읽기. 맵 확보되면 base/count 조정.
 input_register_base: 0x0000

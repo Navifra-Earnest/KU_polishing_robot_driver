@@ -1,9 +1,7 @@
 // safety_io_node.cpp — PILZ PNOZ m B0.1 + PNOZ m ES ETH Safety I/O driver
 //
 // The node reads the physical I/O process data of the PNOZmulti 2 over
-// Modbus/TCP and publishes it to ROS. A charging request is written to a
-// configured PNOZ virtual input; physical outputs remain controlled by the
-// validated PNOZmulti project.
+// Modbus/TCP and publishes it to ROS.
 //
 // Register map source: Pilz "PNOZmulti 2 Communication Interfaces"
 // (1002971-EN), Process data addressing on base unit.
@@ -231,49 +229,7 @@ public:
     return true;
   }
 
-  // FC05: write a PNOZ virtual input. Physical output service-data addresses
-  // are readback-only and must never be passed to this function.
-  bool writeSingleCoil(uint16_t address, bool value)
-  {
-    const uint8_t request[] = {
-      0x05,
-      static_cast<uint8_t>(address >> 8),
-      static_cast<uint8_t>(address & 0xFF),
-      static_cast<uint8_t>(value ? 0xFF : 0x00),
-      0x00
-    };
-    return writeAndCheckEcho(request, sizeof(request), "FC05");
-  }
-
-  // FC06: used for PNOZ Modbus watchdog Control Register 255.
-  bool writeSingleRegister(uint16_t address, uint16_t value)
-  {
-    const uint8_t request[] = {
-      0x06,
-      static_cast<uint8_t>(address >> 8),
-      static_cast<uint8_t>(address & 0xFF),
-      static_cast<uint8_t>(value >> 8),
-      static_cast<uint8_t>(value & 0xFF)
-    };
-    return writeAndCheckEcho(request, sizeof(request), "FC06");
-  }
-
 private:
-  bool writeAndCheckEcho(const uint8_t* request, size_t length, const char* function_name)
-  {
-    std::vector<uint8_t> response;
-    if (!transact(request, static_cast<uint16_t>(length), response)) return false;
-    if (response.size() != length ||
-        !std::equal(response.begin(), response.end(), request))
-    {
-      last_error_ = std::string("malformed ") + function_name + " response";
-      closeSocket();
-      return false;
-    }
-    last_error_.clear();
-    return true;
-  }
-
   bool transact(const uint8_t* pdu, uint16_t pdu_length, std::vector<uint8_t>& response)
   {
     if (!isOpen() && !openSocket()) return false;
@@ -414,15 +370,11 @@ public:
     private_nh.param("publish_rate", publish_rate_, 10.0);
     private_nh.param("input_discrete_base", input_discrete_base_, 16384);
     private_nh.param("output_discrete_base", output_discrete_base_, 16416);
-    // The current KU circuit uses I0..I10 and O0..O3. The full Pilz process
-    // image remains configurable when more points are needed later.
-    private_nh.param("input_count", input_count_, 11);
+    // IM16 is an auxiliary output, but its configurable-I/O status is exposed
+    // in the base-unit input process image at bit 16 (FC02 address 0x4010).
+    private_nh.param("input_count", input_count_, 17);
     private_nh.param("output_count", output_count_, 4);
     private_nh.param<std::string>("topic_prefix", topic_prefix_, "/safety");
-    private_nh.param("charging_command_enabled", charging_command_enabled_, false);
-    private_nh.param("charging_virtual_input", charging_virtual_input_, 2);
-    private_nh.param("charging_watchdog_ms", charging_watchdog_ms_, 1000);
-    private_nh.param("charging_off_on_shutdown", charging_off_on_shutdown_, true);
 
     if (unit_id < 0 || unit_id > 255) throw std::runtime_error("unit_id must be in [0, 255]");
     unit_id_ = static_cast<uint8_t>(unit_id);
@@ -431,13 +383,22 @@ public:
     if (port_ <= 0 || port_ > 65535) throw std::runtime_error("port must be in [1, 65535]");
     if (timeout_ <= 0.0) throw std::runtime_error("timeout must be greater than zero");
     if (publish_rate_ <= 0.0) throw std::runtime_error("publish_rate must be greater than zero");
-    if (charging_virtual_input_ < 0 || charging_virtual_input_ > 127)
-      throw std::runtime_error("charging_virtual_input must be in [0, 127]");
-    charging_watchdog_code_ = watchdogCode(charging_watchdog_ms_);
 
     topic_prefix_ = normaliseTopicPrefix(topic_prefix_);
     loadSignals(private_nh, "inputs", defaultInputs(), input_count_, inputs_);
     loadSignals(private_nh, "outputs", defaultOutputs(), output_count_, outputs_);
+    loadSignals(private_nh, "config_io_outputs", defaultConfigIoOutputs(), input_count_,
+                config_io_outputs_);
+
+    for (const Signal& config_io_output : config_io_outputs_)
+    {
+      const bool duplicate = std::any_of(outputs_.begin(), outputs_.end(),
+        [&config_io_output](const Signal& output) {
+          return output.name == config_io_output.name;
+        });
+      if (duplicate)
+        throw std::runtime_error("duplicate output signal name '" + config_io_output.name + "'");
+    }
 
     device_lock_.reset(new DeviceLock(ip_, port_));
     client_.reset(new ModbusTcpClient(ip_, port_, unit_id_, timeout_));
@@ -451,9 +412,9 @@ public:
     for (const Signal& signal : outputs_)
       output_publishers_[signal.name] =
         nh.advertise<std_msgs::Bool>(topic_prefix_ + "/output/" + signal.name, 1, true);
-    if (charging_command_enabled_)
-      charging_subscriber_ = nh.subscribe<std_msgs::Bool>(
-        topic_prefix_ + "/charging", 10, &SafetyIONode::chargingCallback, this);
+    for (const Signal& signal : config_io_outputs_)
+      output_publishers_[signal.name] =
+        nh.advertise<std_msgs::Bool>(topic_prefix_ + "/output/" + signal.name, 1, true);
 
     publishConnected(false);
 
@@ -461,10 +422,6 @@ public:
              ip_.c_str(), port_, static_cast<unsigned int>(unit_id_),
              input_discrete_base_, input_discrete_base_ + input_count_ - 1,
              output_discrete_base_, output_discrete_base_ + output_count_ - 1);
-    if (charging_command_enabled_)
-      ROS_INFO("[safety_io] %s/charging -> PNOZ virtual input i%d (watchdog=%d ms)",
-               topic_prefix_.c_str(), charging_virtual_input_, charging_watchdog_ms_);
-    ROS_WARN("[safety_io] PNOZ project must validate the charging request before driving physical O2");
 
     timer_ = nh.createTimer(ros::Duration(1.0 / publish_rate_), &SafetyIONode::poll, this);
   }
@@ -473,8 +430,6 @@ public:
   {
     timer_.stop();
     std::lock_guard<std::mutex> lock(client_mutex_);
-    if (charging_command_enabled_ && charging_off_on_shutdown_)
-      client_->writeSingleCoil(static_cast<uint16_t>(charging_virtual_input_), false);
     client_->closeSocket();
   }
 
@@ -498,8 +453,14 @@ private:
     return {
       {"motor_sto_01sr", 0},
       {"motor_sto_02sr", 1},
-      {"charge_port_on", 2},
       {"traction_motor_power_on", 3}
+    };
+  }
+
+  static std::vector<Signal> defaultConfigIoOutputs()
+  {
+    return {
+      {"brake_release", 16}
     };
   }
 
@@ -507,24 +468,6 @@ private:
   {
     if (base < 0 || base > 65535 || count <= 0 || count > 2000 || base + count > 65536)
       throw std::runtime_error(std::string(label) + " Modbus address/count is invalid");
-  }
-
-  static int watchdogCode(int timeout_ms)
-  {
-    switch (timeout_ms)
-    {
-      case 0: return 0;
-      case 100: return 1;
-      case 200: return 2;
-      case 500: return 3;
-      case 1000: return 4;
-      case 3000: return 5;
-      case 5000: return 6;
-      case 10000: return 7;
-      default:
-        throw std::runtime_error(
-          "charging_watchdog_ms must be one of 0,100,200,500,1000,3000,5000,10000");
-    }
   }
 
   static void loadSignals(ros::NodeHandle& private_nh, const std::string& parameter,
@@ -573,7 +516,6 @@ private:
     std::vector<uint8_t> output_values;
     bool input_ok = false;
     bool output_ok = false;
-    bool command_ok = !charging_command_enabled_;
     std::string error;
 
     {
@@ -583,17 +525,11 @@ private:
       if (input_ok)
         output_ok = client_->readDiscreteInputs(static_cast<uint16_t>(output_discrete_base_),
                                                 static_cast<uint16_t>(output_count_), output_values);
-      if (input_ok && output_ok && charging_command_enabled_)
-        command_ok = writeChargingCommandLocked(desired_charging_);
       error = client_->lastError();
-      if (!input_ok || !output_ok || !command_ok)
-      {
-        client_->closeSocket();
-        watchdog_configured_ = false;
-      }
+      if (!input_ok || !output_ok) client_->closeSocket();
     }
 
-    const bool connected = input_ok && output_ok && command_ok;
+    const bool connected = input_ok && output_ok;
     publishConnected(connected);
     reportConnectionState(connected, error);
     if (!connected) return;
@@ -617,58 +553,17 @@ private:
       output_publishers_[signal.name].publish(message);
       state << ' ' << signal.name << '=' << (value ? 1 : 0);
     }
+    for (const Signal& signal : config_io_outputs_)
+    {
+      const bool value = input_values[signal.bit] != 0;
+      std_msgs::Bool message;
+      message.data = value;
+      output_publishers_[signal.name].publish(message);
+      state << ' ' << signal.name << '=' << (value ? 1 : 0);
+    }
     std_msgs::String state_message;
     state_message.data = state.str();
     state_publisher_.publish(state_message);
-  }
-
-  void chargingCallback(const std_msgs::Bool::ConstPtr& message)
-  {
-    desired_charging_ = message->data;
-    bool success = false;
-    std::string error;
-    {
-      std::lock_guard<std::mutex> lock(client_mutex_);
-      success = writeChargingCommandLocked(desired_charging_);
-      error = client_->lastError();
-      if (!success)
-      {
-        client_->closeSocket();
-        watchdog_configured_ = false;
-      }
-    }
-
-    if (success)
-      ROS_INFO("[safety_io] charging request -> %s (virtual input i%d)",
-               desired_charging_ ? "ON" : "OFF", charging_virtual_input_);
-    else
-    {
-      publishConnected(false);
-      ROS_ERROR("[safety_io] charging request write failed: %s",
-                error.empty() ? "unknown error" : error.c_str());
-    }
-  }
-
-  bool writeChargingCommandLocked(bool value)
-  {
-    if (!watchdog_configured_)
-    {
-      if (charging_watchdog_ms_ > 0)
-      {
-        // Register 255: bit 15 triggers the watchdog; bits 10..8 select time.
-        const uint16_t control = static_cast<uint16_t>(0x8000 | (charging_watchdog_code_ << 8));
-        if (!client_->writeSingleRegister(255, control)) return false;
-      }
-      else
-      {
-        ROS_WARN_ONCE("[safety_io] charging watchdog is disabled");
-      }
-      watchdog_configured_ = true;
-    }
-
-    // Every write refreshes the PNOZ watchdog. The timer therefore maintains
-    // both true and false commands and communication loss clears virtual inputs.
-    return client_->writeSingleCoil(static_cast<uint16_t>(charging_virtual_input_), value);
   }
 
   void publishConnected(bool connected)
@@ -707,16 +602,10 @@ private:
   int input_count_;
   int output_count_;
   std::string topic_prefix_;
-  bool charging_command_enabled_;
-  int charging_virtual_input_;
-  int charging_watchdog_ms_;
-  int charging_watchdog_code_;
-  bool charging_off_on_shutdown_;
-  bool desired_charging_ = false;
-  bool watchdog_configured_ = false;
 
   std::vector<Signal> inputs_;
   std::vector<Signal> outputs_;
+  std::vector<Signal> config_io_outputs_;
   std::unique_ptr<DeviceLock> device_lock_;
   std::unique_ptr<ModbusTcpClient> client_;
   std::mutex client_mutex_;
@@ -725,7 +614,6 @@ private:
   std::map<std::string, ros::Publisher> output_publishers_;
   ros::Publisher connected_publisher_;
   ros::Publisher state_publisher_;
-  ros::Subscriber charging_subscriber_;
   ros::Timer timer_;
 
   bool connection_state_known_ = false;

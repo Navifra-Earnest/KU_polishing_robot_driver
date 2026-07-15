@@ -2,7 +2,7 @@
 <package format="2">
   <name>safety_io_driver</name>
   <version>1.0.0</version>
-  <description>ROS1 Modbus/TCP driver for PILZ PNOZ m B0.1 I/O monitoring and watchdog-protected charging request through PNOZ m ES ETH.</description>
+  <description>ROS1 Modbus/TCP driver for PILZ PNOZ m B0.1 I/O monitoring through PNOZ m ES ETH.</description>
 
   <maintainer email="eddie@navifra.com">navifra</maintainer>
   <license>Apache-2.0</license>
