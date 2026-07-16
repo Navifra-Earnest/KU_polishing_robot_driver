@@ -472,7 +472,8 @@ AP(무선) 네트워크:
      wheel_separation  : 좌우 바퀴 간격 [m]  (0.65)
      gear_ratio        : 모터축:바퀴 감속비  (9)
  config/motor_driver.yaml
-     drive_motor_ids   : [1, 2]   (CANopen Node ID)
+     drive_motor_ids   : [1, 2]   (CANopen Node ID, 순서 = /motor/cmd 데이터 순서)
+     motor_directions  : [1, 1]   모터별 회전방향 부호(+1/-1). 반대로 도는 모터는 -1 (명령·피드백에 곱함)
      cmd_timeout_sec   : 1.0      (명령 미수신 시 정지)
      feedback_timeout_sec : 0.5   (피드백 미수신 시 알람)
      fault_reset_interval_sec : 2.0 (드라이브 fault 자동 리셋 재시도 최소 간격)

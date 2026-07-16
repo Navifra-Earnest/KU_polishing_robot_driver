@@ -2,6 +2,9 @@
 can_device: "can0"            # SocketCAN 인터페이스 이름
 control_frequency: 50.0       # 제어/피드백 주기 [Hz]
 drive_motor_ids: [1, 2]       # 구동모터 CANopen Node ID (순서 = cmd data 순서)
+motor_directions: [-1, 1]     # 모터별 회전방향 부호(+1/-1), drive_motor_ids 와 평행. 명령·피드백에 곱함.
+                              # 두 모터가 거울상으로 장착 → 직진 시 base_controller 가 동부호를 주므로 1번만 반전.
+                              # ⚠️ 2번 모터 수리 후 2모터 직진/제자리회전으로 최종 검증 필요.
 cmd_timeout_sec: 1.0          # 이 시간 동안 /motor/cmd 미수신 시 0속도 유지 [s]
 feedback_timeout_sec: 0.5     # 이 시간 동안 모터 피드백(TPDO2) 미수신 시 /motor/alarm 에 MOTOR_FEEDBACK_TIMEOUT [s]
 fault_reset_interval_sec: 2.0 # 드라이브 fault 자동 리셋 재시도 최소 간격 [s] (블로킹 리셋을 rate-limit)

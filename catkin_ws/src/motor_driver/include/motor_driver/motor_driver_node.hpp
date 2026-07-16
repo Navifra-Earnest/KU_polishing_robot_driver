@@ -51,6 +51,7 @@ private:
 
     std::shared_ptr<MotorController> controller_;
     std::vector<uint8_t> drive_motor_ids_;
+    std::vector<int> motor_dir_;   // 모터별 방향 부호(+1/-1), drive_motor_ids_ 와 평행. 명령·피드백에 곱함
 
     // 파라미터
     std::string can_device_;

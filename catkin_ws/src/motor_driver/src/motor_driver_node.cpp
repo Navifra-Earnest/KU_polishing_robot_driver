@@ -23,6 +23,18 @@ MotorDriverNode::MotorDriverNode(ros::NodeHandle& nh, ros::NodeHandle& pnh)
         drive_motor_ids_.push_back(static_cast<uint8_t>(id));
     }
 
+    // 모터별 방향 부호 (drive_motor_ids 와 평행). 미설정/크기불일치 시 전부 +1(무동작).
+    std::vector<int> dir_param;
+    motor_dir_.assign(drive_motor_ids_.size(), 1);
+    if (pnh_.getParam("motor_directions", dir_param)) {
+        if (dir_param.size() == drive_motor_ids_.size()) {
+            for (size_t i = 0; i < dir_param.size(); ++i) motor_dir_[i] = (dir_param[i] < 0) ? -1 : 1;
+        } else {
+            ROS_WARN("motor_directions size (%zu) != drive_motor_ids (%zu) — ignored, all +1.",
+                     dir_param.size(), drive_motor_ids_.size());
+        }
+    }
+
     // --- 컨트롤러 초기화 (CAN open + PDO mapping + sync thread) ---
     controller_ = std::make_shared<MotorController>();
     controller_->init(can_device_, drive_motor_ids_);
@@ -84,7 +96,7 @@ void MotorDriverNode::cmdCallback(const std_msgs::Float32MultiArray::ConstPtr& m
         return;
     }
     for (size_t i = 0; i < drive_motor_ids_.size(); ++i) {
-        controller_->set_target_velocity(drive_motor_ids_[i], msg->data[i]);
+        controller_->set_target_velocity(drive_motor_ids_[i], motor_dir_[i] * msg->data[i]);
     }
 }
 
@@ -220,8 +232,9 @@ void MotorDriverNode::controlLoop(const ros::TimerEvent&)
     // 실측 속도 발행 /motor/velocity  [m1_rpm, m2_rpm]
     std_msgs::Float32MultiArray velocity_msg;
     velocity_msg.data.reserve(drive_motor_ids_.size());
-    for (const auto& id : drive_motor_ids_) {
-        velocity_msg.data.push_back(controller_->get_feedback_velocity(id));
+    for (size_t i = 0; i < drive_motor_ids_.size(); ++i) {
+        // 방향 부호를 피드백에도 적용 → 명령과 같은 부호 규약 (base_controller odom 일관성)
+        velocity_msg.data.push_back(motor_dir_[i] * controller_->get_feedback_velocity(drive_motor_ids_[i]));
     }
     velocity_pub_.publish(velocity_msg);
 
