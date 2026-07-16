@@ -13,3 +13,18 @@ up_speed_rpm: 1000       # 현장 확인: +1000rpm = 상승(위치 증가), -100
 
 poll_rate: 10.0          # [Hz] 위치/상태 폴링
 timeout_sec: 1.0         # 이 시간 동안 응답 없으면 /lift/status = NO_DATA
+
+# ── 위치제어(PID_POSI_CMD 243 / INC 244 / TAR_POSI_VEL 176 / POSI_RESET 13) ──
+# 위치는 홀카운트(증분). 재부팅 시 원점 소실 → /lift/home 로 하부 리미트 원점화 후 절대이동 재현.
+# ⚠️ 벤치 검증 필요: 현재 드라이브 설정에서 243 명령 수용 여부, 카운트↔실거리 환산, 홈잉 정지감지 튜닝.
+enable_position_control: true
+posi_ctrl_vel_rpm: 0     # 위치제어 최대속도[rpm]. 0=|up_speed_rpm| 사용, 그것도 0이면 드라이브 기본(2000)
+home_speed_rpm: 0        # 홈잉 하강 속도크기[rpm]. 0=|up_speed_rpm| 사용 (방향은 자동으로 하강)
+home_stall_counts: 5     # 이 카운트 이하로 위치변화 없으면 '정지'로 간주
+home_stall_sec: 1.5      # 위 정지가 이 시간 이상 지속되면 홈(하부 리미트) 도달로 판정
+home_min_sec: 1.0        # 홈잉 시작 후 최소 이 시간 경과해야 완료 허용(스핀업 오검출 방지)
+home_timeout_sec: 40.0   # 이 시간 내 홈 못찾으면 중단(NOT homed)
+in_position_tol: 20      # |target-pos| 이 값 이하면 위치이동 완료로 간주
+auto_home_on_start: true  # 통신 확보 후 부팅/런치 시 1회 자동 홈잉(하부 리미트→원점0). ⚠️부팅 시 리프트 자동 하강
+post_home_speed_scale: 2.0 # 홈잉 완료 후 수동 up/down + 위치제어 속도 배율(홈잉 자체는 저속 유지). 1.0=미적용
+# 스트로크(실측): 홈잉 원점 0 ~ 최대높이 7000 홀카운트. 절대위치는 이 범위 내로 지령.
