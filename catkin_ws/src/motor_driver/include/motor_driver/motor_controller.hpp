@@ -1,6 +1,6 @@
 #pragma once
 
-#include "motor_driver/can_interface.hpp"
+#include "can_interface/can_interface.hpp"
 #include <cstdint>
 #include <memory>
 #include <mutex>

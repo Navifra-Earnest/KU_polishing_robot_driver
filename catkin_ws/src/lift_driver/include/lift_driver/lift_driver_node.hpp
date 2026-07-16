@@ -6,7 +6,7 @@
 #include <std_msgs/Int16.h>
 #include <std_msgs/Bool.h>
 
-#include "motor_driver/serial_interface.hpp"
+#include "lift_driver/serial_interface.hpp"
 
 #include <atomic>
 #include <cstdint>

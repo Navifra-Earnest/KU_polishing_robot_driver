@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>can_interface</name>
+  <version>1.0.0</version>
+  <description>SocketCAN 송수신 래퍼 라이브러리 (ROS1 Noetic). motor_driver·bms_driver 등 CAN 사용 노드가 공유.</description>
+  <maintainer email="matt@navifra.com">navifra</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>roscpp</depend>
+</package>

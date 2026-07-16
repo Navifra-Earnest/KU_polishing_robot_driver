@@ -1,4 +1,4 @@
-#include "motor_driver/can_interface.hpp"
+#include "can_interface/can_interface.hpp"
 
 #include <fcntl.h>
 #include <linux/can/raw.h>

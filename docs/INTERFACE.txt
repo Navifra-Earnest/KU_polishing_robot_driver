@@ -50,9 +50,9 @@
        출력  /safety/input/* std_msgs/Bool              (Safety PLC 물리 입력 raw 상태)
        출력  /safety/output/* std_msgs/Bool             (Safety PLC 물리 출력 raw 상태)
  - 실행(로봇):   roslaunch motor_driver bringup.launch    (구동부)
-                 roslaunch motor_driver bms.launch        (배터리)
+                 roslaunch bms_driver bms.launch        (배터리)
                  roslaunch crevis_io_driver crevis_io.launch  (조명 LED / Crevis I/O)
-                 roslaunch motor_driver lift.launch       (리프트)
+                 roslaunch lift_driver lift.launch       (리프트)
                  roslaunch safety_io_driver safety_io.launch  (Safety PLC I/O)
 
 --------------------------------------------------------------------------------
@@ -106,7 +106,7 @@ AP(무선) 네트워크:
        -> /cmd_vel 구독, /odom 발행
 
  2.2 배터리 모니터링
-     roslaunch motor_driver bms.launch
+     roslaunch bms_driver bms.launch
        -> /bms/state 발행
 
  2.3 (참고) 키보드 수동 조종 — 검증/디버그용
@@ -121,7 +121,7 @@ AP(무선) 네트워크:
        (Crevis GN-9289 IP 는 config/crevis_io.yaml 의 ip 파라미터와 일치해야 함)
 
  2.5 리프트 제어
-     roslaunch motor_driver lift.launch
+     roslaunch lift_driver lift.launch
        -> /lift/command·/lift/velocity_cmd 구독,
           /lift/position·/lift/status 발행
        (포트는 config/lift_driver.yaml 의 port, 기본 /dev/ttyS0)
@@ -335,9 +335,9 @@ AP(무선) 네트워크:
 
  4.0 사전 준비
      - 로봇 PC 에서 드라이버 실행:  roslaunch motor_driver bringup.launch
-     - 배터리 확인 시:             roslaunch motor_driver bms.launch
+     - 배터리 확인 시:             roslaunch bms_driver bms.launch
      - 조명 LED 확인 시:           roslaunch crevis_io_driver crevis_io.launch
-     - 리프트 확인 시:             roslaunch motor_driver lift.launch
+     - 리프트 확인 시:             roslaunch lift_driver lift.launch
      - Safety PLC 확인 시:         roslaunch safety_io_driver safety_io.launch
      - 토픽 목록 확인:             rostopic list
 
@@ -402,7 +402,7 @@ AP(무선) 네트워크:
      * 명령한 색과 실제 켜지는 LED/색이 다르면 crevis_io.yaml 의 leds 비트매핑을 배선에 맞게 조정.
 
  4.6 리프트 검증  (lift_driver)
-     [사전] 로봇 PC 에서:  roslaunch motor_driver lift.launch
+     [사전] 로봇 PC 에서:  roslaunch lift_driver lift.launch
      [상태]  rostopic echo /lift/position    # 손으로 움직이면 값 변함(엔코더)
              rostopic echo /lift/status      # connected pos=.. status=OK
              (status 에 NO_DATA 가 반복되면 포트/배선/baud 확인)

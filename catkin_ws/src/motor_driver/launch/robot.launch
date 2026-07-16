@@ -13,8 +13,8 @@
   <arg name="use_safety" default="true"/>   <!-- Safety PLC I/O (MODBUS TCP) -->
 
   <include if="$(arg use_drive)"  file="$(find motor_driver)/launch/bringup.launch"/>
-  <include if="$(arg use_bms)"    file="$(find motor_driver)/launch/bms.launch"/>
-  <include if="$(arg use_lift)"   file="$(find motor_driver)/launch/lift.launch"/>
+  <include if="$(arg use_bms)"    file="$(find bms_driver)/launch/bms.launch"/>
+  <include if="$(arg use_lift)"   file="$(find lift_driver)/launch/lift.launch"/>
   <include if="$(arg use_crevis)" file="$(find crevis_io_driver)/launch/crevis_io.launch"/>
   <include if="$(arg use_safety)" file="$(find safety_io_driver)/launch/safety_io.launch"/>
 </launch>

@@ -1,9 +1,9 @@
 <launch>
   <!-- Daly BMS 배터리 모니터링 드라이버 (CAN 250K, 별도 버스)
        출력: /bms/state (sensor_msgs/BatteryState) -->
-  <arg name="bms_params" default="$(find motor_driver)/config/bms_driver.yaml"/>
+  <arg name="bms_params" default="$(find bms_driver)/config/bms_driver.yaml"/>
 
-  <node pkg="motor_driver" type="bms_driver_node" name="bms_driver" output="screen">
+  <node pkg="bms_driver" type="bms_driver_node" name="bms_driver" output="screen">
     <rosparam command="load" file="$(arg bms_params)"/>
   </node>
 </launch>

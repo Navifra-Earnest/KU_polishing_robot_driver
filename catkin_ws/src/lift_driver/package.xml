@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>lift_driver</name>
+  <version>1.0.0</version>
+  <description>MDROBOT MD DC 리프트 드라이버 (RS485/COM1, ROS1 Noetic). /lift/command·/lift/position 등.</description>
+  <maintainer email="matt@navifra.com">navifra</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>roscpp</depend>
+  <depend>std_msgs</depend>
+</package>
