@@ -38,6 +38,18 @@ rsync -avz --delete "${INSTALL_DIR}/" "${DEST}:navifra/install/"
 # 3) 로봇 실행/텔레옵 스크립트 동봉
 rsync -avz "${SCRIPT_DIR}/run_robot.sh" "${SCRIPT_DIR}/teleop.sh" "${DEST}:navifra/"
 
+# 4) 현장 보정값(오프셋) param.yaml
+#    - param.default.yaml : 최신 템플릿을 항상 갱신(참조용).
+#    - param.yaml         : 로봇에서 편집하는 실사용 파일.
+#      sync_param.py 로 "additive merge" — 없으면 템플릿에서 생성, 있으면 기존 값·주석을
+#      그대로 두고 템플릿에 새로 생긴 키만 추가(현장 편집값 보존 + 신규 항목 동기화).
+if [ -f "${SCRIPT_DIR}/param.yaml" ]; then
+    rsync -avz "${SCRIPT_DIR}/param.yaml"     "${DEST}:navifra/param.default.yaml"
+    rsync -avz "${SCRIPT_DIR}/sync_param.py"  "${DEST}:navifra/sync_param.py"
+    ssh "${DEST}" 'python3 ~/navifra/sync_param.py ~/navifra/param.default.yaml ~/navifra/param.yaml'
+    echo "[deploy] param: default 갱신 + param.yaml 신규키 병합(편집값 보존)"
+fi
+
 echo "[deploy] 완료."
 echo "  드라이버 노드 (로봇):   bash ~/navifra/run_robot.sh   (또는 systemd)"
 echo "  키보드 텔레옵 (노트북): ssh -t ${DEST} 'bash ~/navifra/teleop.sh'"

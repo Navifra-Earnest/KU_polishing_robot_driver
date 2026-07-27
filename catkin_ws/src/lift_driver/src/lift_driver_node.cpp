@@ -186,8 +186,11 @@ void LiftDriver::velocityCmdCallback(const std_msgs::Int16::ConstPtr& msg)
 void LiftDriver::positionCmdCallback(const std_msgs::Int32::ConstPtr& msg)
 {
     if (!homed_) {
-        ROS_WARN_THROTTLE(2.0, "lift_driver: not homed - target is relative to power-on origin. "
-                               "Publish /lift/home (true) once per power cycle for repeatable absolute positioning.");
+        // 원점 미확립 상태의 절대위치 명령은 거부(무시). 상대이동은 /lift/inc_position_cmd 사용.
+        ROS_WARN_THROTTLE(2.0, "lift_driver: not homed - absolute position_cmd IGNORED. "
+                               "Publish /lift/home (true) once per power cycle first "
+                               "(or use /lift/inc_position_cmd for relative moves).");
+        return;
     }
     target_pos_ = msg->data;
     mode_ = Mode::POSITION;

@@ -30,16 +30,29 @@ fi
 
 echo "[run_robot] ROS_MASTER_URI=$ROS_MASTER_URI  INSTALL=${INSTALL_DIR}  CAN=${CAN_DEV}"
 
+# --- 현장 보정값(오프셋) param.yaml -----------------------------------------
+#  ~/navifra/param.yaml 을 런치에서 로드해 각 노드 기본 config 위에 덮어쓴다.
+#  없으면 템플릿(param.default.yaml, deploy 시 동봉)에서 1회 생성하고, 있으면 그대로 쓴다.
+PARAM_FILE="${PARAM_FILE:-$HOME/navifra/param.yaml}"
+PARAM_DEFAULT="$HOME/navifra/param.default.yaml"
+if [ ! -f "$PARAM_FILE" ] && [ -f "$PARAM_DEFAULT" ]; then
+    cp "$PARAM_DEFAULT" "$PARAM_FILE"
+    echo "[run_robot] param.yaml 생성: $PARAM_FILE (param.default.yaml 복사)"
+fi
+if [ -f "$PARAM_FILE" ]; then LOAD_PARAMS=true; else LOAD_PARAMS=false; fi
+echo "[run_robot] param overrides: load=$LOAD_PARAMS file=$PARAM_FILE"
+
 # =============================================================================
 #  실행할 서브시스템 (사용: true / 미사용: false)
-#  ▶ 필요 없는 서브시스템은 값을 false 로 바꾸세요.
-#     (편집:  nano ~/navifra/run_robot.sh   →  저장 Ctrl+O, 종료 Ctrl+X)
+#  ▶ 아래 기본값을 편집하거나(nano ~/navifra/run_robot.sh), 실행 시 환경변수로 덮어쓸 수 있습니다.
+#     예) 모터만 끄고 실행:   USE_DRIVE=false ./run_robot.sh
+#         리프트만 실행:      USE_DRIVE=false USE_BMS=false USE_CREVIS=false USE_SAFETY=false ./run_robot.sh
 # =============================================================================
-USE_DRIVE=true      # 구동부    : 모터 + 주행(/cmd_vel, /odom)
-USE_BMS=true        # 배터리    : BMS 모니터링(/bms/state)        [CAN can1]
-USE_LIFT=true       # 리프트    : 상승/하강(/lift/*)              [RS485 COM1]
-USE_CREVIS=true     # 조명      : Crevis LED(/crevis/*)           [이더넷]
-USE_SAFETY=true     # Safety PLC: 안전 I/O·충전(/safety/*)        [이더넷]
+USE_DRIVE="${USE_DRIVE:-true}"    # 구동부    : 모터 + 주행(/cmd_vel, /odom)
+USE_BMS="${USE_BMS:-true}"        # 배터리    : BMS 모니터링(/bms/state)        [CAN can1]
+USE_LIFT="${USE_LIFT:-true}"      # 리프트    : 상승/하강(/lift/*)              [RS485 COM1]
+USE_CREVIS="${USE_CREVIS:-true}"  # 조명      : Crevis LED(/crevis/*)           [이더넷]
+USE_SAFETY="${USE_SAFETY:-true}"  # Safety PLC: 안전 I/O·충전(/safety/*)        [이더넷]
 # =============================================================================
 
 echo "[run_robot] drive=$USE_DRIVE bms=$USE_BMS lift=$USE_LIFT crevis=$USE_CREVIS safety=$USE_SAFETY"
@@ -50,4 +63,6 @@ exec roslaunch motor_driver robot.launch \
     use_bms:=$USE_BMS \
     use_lift:=$USE_LIFT \
     use_crevis:=$USE_CREVIS \
-    use_safety:=$USE_SAFETY
+    use_safety:=$USE_SAFETY \
+    load_params:=$LOAD_PARAMS \
+    param_file:=$PARAM_FILE

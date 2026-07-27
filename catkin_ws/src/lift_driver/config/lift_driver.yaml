@@ -25,6 +25,7 @@ home_stall_sec: 1.5      # 위 정지가 이 시간 이상 지속되면 홈(하�
 home_min_sec: 1.0        # 홈잉 시작 후 최소 이 시간 경과해야 완료 허용(스핀업 오검출 방지)
 home_timeout_sec: 40.0   # 이 시간 내 홈 못찾으면 중단(NOT homed)
 in_position_tol: 20      # |target-pos| 이 값 이하면 위치이동 완료로 간주
-auto_home_on_start: true  # 통신 확보 후 부팅/런치 시 1회 자동 홈잉(하부 리미트→원점0). ⚠️부팅 시 리프트 자동 하강
+auto_home_on_start: false # 부팅/런치 시 1회 자동 홈잉 여부(하부 리미트→원점0). 기본 false(안전).
+                          # ⚠️ true면 런치 즉시 리프트가 자동 하강함. 현장에선 ~/navifra/param.yaml 로 조정.
 post_home_speed_scale: 2.0 # 홈잉 완료 후 수동 up/down + 위치제어 속도 배율(홈잉 자체는 저속 유지). 1.0=미적용
 # 스트로크(실측): 홈잉 원점 0 ~ 최대높이 7000 홀카운트. 절대위치는 이 범위 내로 지령.
