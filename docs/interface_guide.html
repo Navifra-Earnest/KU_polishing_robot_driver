@@ -1,0 +1,814 @@
+<title>KU Polishing Robot Driver — ROS 인터페이스 &amp; 검증 가이드</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, "Noto Sans KR", "Malgun Gothic", sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: #1a1f26;
+    background: #ffffff;
+  }
+
+  :root {
+    --navy: #1e3a5f;
+    --navy-dark: #142a45;
+    --gray-line: #c7ccd1;
+    --gray-line-light: #dfe2e6;
+    --gray-bg: #f4f6f8;
+    --gray-text: #5b6570;
+    --zebra: #f8f9fb;
+  }
+
+  /* ---------- Cover page ---------- */
+  .cover {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 245mm;
+    page-break-after: always;
+    text-align: center;
+  }
+  .cover .kicker {
+    color: var(--navy);
+    letter-spacing: 0.12em;
+    font-size: 10pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 14mm;
+  }
+  .cover h1 {
+    font-size: 30pt;
+    margin: 0 0 6mm 0;
+    color: var(--navy-dark);
+    letter-spacing: -0.01em;
+  }
+  .cover .subtitle {
+    font-size: 14pt;
+    color: var(--gray-text);
+    margin: 0 0 20mm 0;
+    font-weight: 500;
+  }
+  .cover .meta-wrap {
+    display: flex;
+    justify-content: center;
+  }
+  .cover table.meta {
+    border-collapse: collapse;
+    min-width: 120mm;
+    text-align: left;
+  }
+  .cover table.meta th,
+  .cover table.meta td {
+    padding: 3mm 6mm;
+    border-bottom: 1px solid var(--gray-line-light);
+    font-size: 10.5pt;
+  }
+  .cover table.meta th {
+    color: var(--gray-text);
+    font-weight: 600;
+    white-space: nowrap;
+    width: 34mm;
+  }
+  .cover table.meta tr:last-child th,
+  .cover table.meta tr:last-child td {
+    border-bottom: none;
+  }
+  .cover .footer-line {
+    margin-top: 20mm;
+    font-size: 9pt;
+    color: #9aa3ac;
+  }
+
+  /* ---------- Headings ---------- */
+  h1 {
+    font-size: 16pt;
+    color: var(--navy-dark);
+    border-bottom: 2px solid var(--navy);
+    padding-bottom: 2mm;
+    margin: 10mm 0 5mm 0;
+    break-after: avoid;
+  }
+  h1:first-of-type { margin-top: 0; }
+  h2 {
+    font-size: 12.5pt;
+    color: var(--navy);
+    margin: 7mm 0 3mm 0;
+    break-after: avoid;
+  }
+  h3 {
+    font-size: 11pt;
+    color: var(--navy-dark);
+    margin: 5mm 0 2mm 0;
+    break-after: avoid;
+  }
+  p { margin: 2mm 0; }
+
+  /* ---------- Tables ---------- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3mm 0 5mm 0;
+    font-size: 9.7pt;
+    break-inside: avoid;
+  }
+  table.wide { font-size: 9.3pt; }
+  th, td {
+    border: 1px solid var(--gray-line);
+    padding: 1.6mm 2.5mm;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--gray-bg);
+    color: var(--navy-dark);
+    font-weight: 600;
+  }
+  tr:nth-child(even) td {
+    background: var(--zebra);
+  }
+  td.mono, th.mono { font-family: "SFMono-Regular", Consolas, monospace; }
+  .col-narrow { width: 14mm; }
+  .col-dir { width: 12mm; }
+
+  /* ---------- Code blocks ---------- */
+  pre {
+    background: var(--gray-bg);
+    border: 1px solid var(--gray-line-light);
+    border-left: 3px solid var(--navy);
+    border-radius: 2px;
+    padding: 3mm 4mm;
+    margin: 2mm 0 4mm 0;
+    font-size: 9pt;
+    line-height: 1.45;
+    overflow-x: auto;
+    break-inside: avoid;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+  p code, li code, td code {
+    background: var(--gray-bg);
+    padding: 0.2mm 1mm;
+    border-radius: 2px;
+    font-size: 9.3pt;
+  }
+
+  /* ---------- Misc blocks ---------- */
+  .note {
+    background: #f4f7fb;
+    border-left: 3px solid var(--navy);
+    padding: 2.5mm 4mm;
+    margin: 3mm 0;
+    font-size: 9.8pt;
+    break-inside: avoid;
+  }
+  .warn {
+    background: #fbf3ee;
+    border-left: 3px solid #a15c2a;
+    padding: 2.5mm 4mm;
+    margin: 3mm 0;
+    font-size: 9.8pt;
+    break-inside: avoid;
+    color: #4a3626;
+  }
+  ul, ol { margin: 2mm 0; padding-left: 6mm; }
+  li { margin: 0.8mm 0; }
+  .section { break-inside: avoid-page; }
+  .subsection-block { break-inside: avoid; margin-bottom: 4mm; }
+  .badge {
+    display: inline-block;
+    font-size: 8.3pt;
+    font-weight: 700;
+    color: #fff;
+    background: var(--navy);
+    border-radius: 3px;
+    padding: 0.3mm 1.8mm;
+    margin-right: 1.5mm;
+  }
+  .badge.out { background: #4c7a5e; }
+  .small { font-size: 9pt; color: var(--gray-text); }
+  hr.sep { border: none; border-top: 1px solid var(--gray-line-light); margin: 6mm 0; }
+</style>
+
+<!-- ============================================================ -->
+<!-- COVER PAGE -->
+<!-- ============================================================ -->
+<div class="cover">
+  <div class="kicker">Navifra · ROS Interface Document</div>
+  <h1>KU Polishing Robot Driver</h1>
+  <div class="subtitle">ROS 인터페이스 &amp; 검증 가이드 (고객사 제공용)</div>
+  <div class="meta-wrap">
+    <table class="meta">
+      <tr><th>작성</th><td>Navifra</td></tr>
+      <tr><th>대상</th><td>건국대(KU) 연동 담당자</td></tr>
+      <tr><th>버전</th><td>v0.12</td></tr>
+      <tr><th>날짜</th><td>2026-07-27</td></tr>
+      <tr><th>ROS 환경</th><td>ROS1 Noetic, Ubuntu 20.04, x86_64</td></tr>
+    </table>
+  </div>
+  <div class="footer-line">본 문서는 KU Polishing Robot Driver 의 ROS 인터페이스 사양 및 검증 절차를 정리한 참조 문서입니다.</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 문서 갱신 이력 -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>문서 갱신 이력</h1>
+<table class="wide">
+  <tr><th style="width:22mm;">날짜</th><th style="width:14mm;">버전</th><th>변경 내용</th></tr>
+  <tr><td>2026-07-14</td><td>v0.1</td><td>최초 작성. 구동부(cmd_vel/odom) + 배터리(BMS) 인터페이스 정리. 리프트/조명은 미구현(예정). 모터 enable 이슈 별도 명시.</td></tr>
+  <tr><td>2026-07-14</td><td>v0.2</td><td>조명(LED) 인터페이스 추가 — crevis_io_driver (Crevis GN-9289 MODBUS TCP). LED 6개 개별 on/off 토픽. 리프트는 계속 미구현(예정).</td></tr>
+  <tr><td>2026-07-14</td><td>v0.3</td><td>crevis_io_driver C++ 전환(순수 소켓 Modbus TCP 구현 → 외부 라이브러리/파이썬 의존 0). 통합상태 토픽 /crevis/led_state_all 추가. Crevis 실장비 연동 검증 완료(IP 192.168.100.104, LED 6개 on/off+readback+통합상태 확인). 단독 systemd 서비스는 미포함(구동/BMS 등과 통합 서비스로 추후 등록 예정).</td></tr>
+  <tr><td>2026-07-14</td><td>v0.4</td><td>리프트 제어 추가 — lift_driver (MDROBOT MD, RS485). 토픽 /lift/command·velocity_cmd·position·status 및 검증 절차(4.6) 반영. 네트워크 IP 표 정리(로봇 PC/LiDAR/Safety PLC/Crevis + AP 대역). 리프트는 증분 위치(엔코더)라 재부팅 후 원점 재설정 필요 명시.</td></tr>
+  <tr><td>2026-07-14</td><td>v0.5</td><td>긴급정지(소프트웨어 E-stop) 추가 — /estop (std_msgs/Bool). 구동부·리프트가 공통 구독: true=즉시 0속도+servo OFF, false=해제. 검증(4.7) 반영. ⚠️ 소프트웨어 정지이며 안전인증(safety-rated) 아님 — Safety PLC 하드 E-stop 과의 관계는 협의 필요(§6).</td></tr>
+  <tr><td>2026-07-14</td><td>v0.6</td><td>Safety PLC 인터페이스 추가 — safety_io_driver (PILZ PNOZ m B0.1 + PNOZ m ES ETH, MODBUS TCP). 물리 I/O 개별 상태 인터페이스 반영.</td></tr>
+  <tr><td>2026-07-15</td><td>v0.7</td><td>충전 릴레이 인터페이스를 Crevis Y01.06으로 이관 — Crevis 명령 및 출력 상태 토픽 추가, Safety PLC 충전 제어/상태 매핑 제거.</td></tr>
+  <tr><td>2026-07-15</td><td>v0.8</td><td>Safety PLC IM16 BRAKE RELEASE 주소 수정 — Config I/O 상태 주소 0x4010에서 읽고 /safety/output/brake_release로 발행.</td></tr>
+  <tr><td>2026-07-15</td><td>v0.9</td><td>충전 상태 확인 절차 추가 — Crevis 충전 명령 후 릴레이 readback을 확인하고, /bms/state.current가 양수이면 실제 충전 중으로 판정.</td></tr>
+  <tr><td>2026-07-23</td><td>v0.10</td><td>하드 비상정지 통합 토픽 추가 — safety_io_driver 가 EMERGENCY 1b/2b + BUMPER(front/rear)를 묶어 /safety/estop(Bool, true=비상)로 발행. 접점별 극성(active_low) config 지정, 시작·통신두절 시 fail-safe true. (개별 접점 비트/극성은 실장비 확정 필요 — §3.7)</td></tr>
+  <tr><td>2026-07-27</td><td>v0.11</td><td>소프트웨어 긴급정지 /estop 제거 — 긴급정지는 하드웨어 Safety PLC 가 전담(§3.6). motor_driver·lift_driver 의 /estop 구독/정지로직 삭제. ROS 는 하드 비상정지 상태를 /safety/estop 으로 감지만 함.</td></tr>
+  <tr><td>2026-07-27</td><td>v0.12</td><td>/safety/estop 판정 개선 — 입력 접점 OR 에 더해 traction 전원 출력(traction_motor_power_on) off 를 함께 반영. 범퍼(모멘터리)를 떼도 PLC STO 래치로 전원이 off 인 동안 estop=true 유지, 리셋 복구 시 false. 범퍼 극성 active_low=false 로 실장비 확정(§3.7). ⚠️ 로봇 배포/실장비 재검증은 미완(연결 두절) — 다음 접속 시 확인 필요.</td></tr>
+  <tr><td colspan="3" class="small">(이후 기능 추가 시 이 문서를 계속 갱신)</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<!-- §0 요약 -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>0. 요약 (한눈에)</h1>
+<ul>
+  <li>ROS 버전 : ROS1 Noetic (Ubuntu 20.04, x86_64)</li>
+  <li>패키지명 : motor_driver, crevis_io_driver, safety_io_driver (및 bms_driver, lift_driver)</li>
+</ul>
+<p>상위(고객사)에서 쓰는 표준 인터페이스:</p>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:32mm;">토픽</th><th style="width:34mm;">메시지 타입</th><th>설명</th></tr>
+  <tr><td>입력</td><td class="mono">/cmd_vel</td><td class="mono">geometry_msgs/Twist</td><td>주행 명령: 선속도 v, 각속도 w</td></tr>
+  <tr><td>출력</td><td class="mono">/odom</td><td class="mono">nav_msgs/Odometry</td><td>위치/자세/속도 + TF odom→base_link</td></tr>
+  <tr><td>출력</td><td class="mono">/bms/state</td><td class="mono">sensor_msgs/BatteryState</td><td>배터리 잔량/충전상태 등</td></tr>
+  <tr><td>입력</td><td class="mono">/crevis/led/*</td><td class="mono">std_msgs/Bool</td><td>조명 LED 개별 on/off, 6개</td></tr>
+  <tr><td>입력</td><td class="mono">/crevis/charging</td><td class="mono">std_msgs/Bool</td><td>Crevis 충전 릴레이 ON/OFF 요청</td></tr>
+  <tr><td>출력</td><td class="mono">/crevis/charge_port_on</td><td class="mono">std_msgs/Bool</td><td>Crevis 충전 릴레이 실제 출력 상태</td></tr>
+  <tr><td>입력</td><td class="mono">/lift/command</td><td class="mono">std_msgs/String</td><td>리프트: "up"/"down"/"stop"</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/position</td><td class="mono">std_msgs/Int32</td><td>리프트 위치, 홀 카운트 증분</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/*</td><td class="mono">std_msgs/Bool</td><td>Safety PLC 물리 입력 raw 상태</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/output/*</td><td class="mono">std_msgs/Bool</td><td>Safety PLC 물리 출력 raw 상태</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/estop</td><td class="mono">std_msgs/Bool</td><td>하드 비상정지 통합상태: true=비상 활성</td></tr>
+</table>
+<p>실행(로봇):</p>
+<pre><code>roslaunch motor_driver bringup.launch          # 구동부
+roslaunch bms_driver bms.launch                # 배터리
+roslaunch crevis_io_driver crevis_io.launch    # 조명 LED / Crevis I/O
+roslaunch lift_driver lift.launch              # 리프트
+roslaunch safety_io_driver safety_io.launch    # Safety PLC I/O</code></pre>
+</div>
+
+<!-- ============================================================ -->
+<!-- §1 구성 개요 -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>1. 구성 개요</h1>
+<p>로봇 PC(ROS1 Noetic)에서 아래 노드가 실행됩니다.</p>
+<table class="wide">
+  <tr><th style="width:36mm;">노드</th><th>역할</th></tr>
+  <tr><td class="mono">motor_driver_node</td><td>저수준 모터 드라이버 (CAN/CANopen CiA402, 구동모터 2개)</td></tr>
+  <tr><td class="mono">base_controller</td><td>표준 이동로봇 인터페이스 (cmd_vel ↔ odom, 차동구동)</td></tr>
+  <tr><td class="mono">bms_driver</td><td>배터리(Daly BMS) 모니터링 (CAN 250K)</td></tr>
+  <tr><td class="mono">crevis_io_node</td><td>조명 LED / 충전 릴레이 / 디지털 I/O (Crevis GN-9289, MODBUS TCP 이더넷)</td></tr>
+  <tr><td class="mono">lift_driver</td><td>리프트 제어 (MDROBOT MD, RS485)</td></tr>
+  <tr><td class="mono">safety_io_node</td><td>Safety PLC I/O 상태 모니터링 (PILZ PNOZmulti 2, MODBUS TCP)</td></tr>
+</table>
+
+<h2>CAN 버스</h2>
+<table>
+  <tr><th style="width:26mm;">버스</th><th>내용</th></tr>
+  <tr><td class="mono">can0</td><td>500 kbps — 구동 모터 (Node ID 1, 2)</td></tr>
+  <tr><td class="mono">can1</td><td>250 kbps — Daly BMS</td></tr>
+</table>
+
+<h2>RS485</h2>
+<p><code>/dev/ttyS0</code> (COM1) — 리프트 모터드라이버 (USB-RS485 테스트 시 <code>/dev/ttyUSB0</code>)</p>
+
+<h2>네트워크 IP 구성</h2>
+<table>
+  <tr><th style="width:40mm;">장비</th><th>IP</th></tr>
+  <tr><td>로봇 PC</td><td class="mono">192.168.100.100</td></tr>
+  <tr><td>Front LiDAR</td><td class="mono">192.168.100.101</td></tr>
+  <tr><td>Rear LiDAR</td><td class="mono">192.168.100.102</td></tr>
+  <tr><td>Safety PLC</td><td class="mono">192.168.100.103</td></tr>
+  <tr><td>Crevis IO</td><td class="mono">192.168.100.104</td></tr>
+</table>
+<p class="small">※ 이외에 LAN Hub에 연결되는 장비는 모두 192.168.100.xxx 대역으로 설정 바랍니다.</p>
+
+<h2>AP(무선) 네트워크</h2>
+<p>AP 연결 PC IP : <code>192.168.1.100</code> (수정 가능)</p>
+<p class="small">※ AP 설정 시 위 대역 참고 바랍니다.</p>
+
+<div class="note">
+상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"(/cmd_vel, /odom, /bms/state, /crevis/led/*, /crevis/charging, /lift/command·/lift/position, /safety/input/*, /safety/output/*)만 사용하면 됩니다. 저수준 토픽(/motor/*, /lift/velocity_cmd)은 디버그/직접제어용입니다.
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- §2 실행 방법 -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>2. 실행 방법</h1>
+<p class="small">(로봇 PC 에 SSH 접속 후)</p>
+
+<h2>2.1 구동부 (드라이버 + 표준 인터페이스)</h2>
+<pre><code>roslaunch motor_driver bringup.launch
+  -&gt; motor_driver_node + base_controller 실행
+  -&gt; /cmd_vel 구독, /odom 발행</code></pre>
+
+<h2>2.2 배터리 모니터링</h2>
+<pre><code>roslaunch bms_driver bms.launch
+  -&gt; /bms/state 발행</code></pre>
+
+<h2>2.3 (참고) 키보드 수동 조종 — 검증/디버그용</h2>
+<pre><code>rosrun motor_driver teleop_keyboard.py
+  -&gt; 키보드로 /cmd_vel 발행 (u/i/o 전진, j/l 회전, ,/. 후진, k 정지)</code></pre>
+
+<h2>2.4 조명 LED·충전 릴레이 / Crevis I/O</h2>
+<pre><code>roslaunch crevis_io_driver crevis_io.launch
+  -&gt; /crevis/led/*·/crevis/charging 구독(LED/충전 릴레이 on/off),
+     /crevis/led_state/*·/crevis/led_state_all·/crevis/charge_port_on·
+     /crevis/connected·/crevis/di 발행
+  (Crevis GN-9289 IP 는 config/crevis_io.yaml 의 ip 파라미터와 일치해야 함)</code></pre>
+
+<h2>2.5 리프트 제어</h2>
+<pre><code>roslaunch lift_driver lift.launch
+  -&gt; /lift/command·/lift/velocity_cmd 구독,
+     /lift/position·/lift/status 발행
+  (포트는 config/lift_driver.yaml 의 port, 기본 /dev/ttyS0)</code></pre>
+
+<h2>2.6 Safety PLC I/O</h2>
+<pre><code>roslaunch safety_io_driver safety_io.launch
+  -&gt; /safety/input/*·/safety/output/*·/safety/state_all·/safety/connected 발행
+  (PILZ PNOZ m ES ETH IP 기본값: 192.168.100.103, MODBUS TCP 502)</code></pre>
+</div>
+
+<!-- ============================================================ -->
+<!-- §3 ROS 인터페이스(API) -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>3. ROS 인터페이스 (API)</h1>
+
+<h2>3.1 [구동부 — 상위 표준 인터페이스] (권장, base_controller)</h2>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:22mm;">토픽</th><th style="width:34mm;">메시지 타입</th><th>내용</th></tr>
+  <tr><td>입력</td><td class="mono">/cmd_vel</td><td class="mono">geometry_msgs/Twist</td>
+      <td>linear.x = 선속도 [m/s] (+전진)<br>angular.z = 각속도 [rad/s] (+반시계=좌회전)<br>(그 외 필드는 무시)</td></tr>
+  <tr><td>출력</td><td class="mono">/odom</td><td class="mono">nav_msgs/Odometry</td>
+      <td>pose.pose : 추정 위치(x,y)/자세(quaternion)<br>twist.twist : 현재 v(linear.x), w(angular.z)<br>frame_id=odom, child_frame_id=base_link<br>+ TF (odom → base_link) 브로드캐스트</td></tr>
+</table>
+<ul>
+  <li>차동구동 역기구학은 base_controller 가 처리합니다.</li>
+  <li>cmd_vel 미수신이 0.5s 지속되면 안전상 0속도로 정지합니다(연속 발행 권장, 예: 10Hz).</li>
+</ul>
+
+<h2>3.2 [배터리 — BMS] (bms_driver)</h2>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:24mm;">토픽</th><th style="width:38mm;">메시지 타입</th><th>내용</th></tr>
+  <tr><td>출력</td><td class="mono">/bms/state</td><td class="mono">sensor_msgs/BatteryState</td><td>배터리 상태 (약 2Hz)</td></tr>
+  <tr><td>출력</td><td class="mono">/bms/soc</td><td class="mono">std_msgs/Float32</td><td>배터리 잔량 [%] 0~100 (편의용) ← 예) 49.9</td></tr>
+</table>
+<p><strong>/bms/state 주요 필드</strong>:</p>
+<table>
+  <tr><th style="width:36mm;">필드</th><th>내용</th></tr>
+  <tr><td class="mono">percentage</td><td>배터리 잔량 (0.0 ~ 1.0, ROS 표준) ← 예) 0.499 = 49.9% (0~100 % 값이 필요하면 /bms/soc 사용)</td></tr>
+  <tr><td class="mono">power_supply_status</td><td>충전 상태: 1=CHARGING(충전 중), 2=DISCHARGING(방전 중), 3=NOT_CHARGING, 4=FULL(완충), 0=UNKNOWN(데이터 미수신)</td></tr>
+  <tr><td class="mono">voltage</td><td>총 전압 [V]</td></tr>
+  <tr><td class="mono">current</td><td>전류 [A] (+ 충전 / - 방전)</td></tr>
+  <tr><td class="mono">temperature</td><td>배터리 온도 [℃]</td></tr>
+  <tr><td class="mono">charge</td><td>잔여 용량 [Ah]</td></tr>
+  <tr><td class="mono">present</td><td>true = BMS 데이터 정상 수신 중</td></tr>
+  <tr><td class="mono">power_supply_health</td><td>1=GOOD, 5=고장(알람) 감지, 0=UNKNOWN</td></tr>
+</table>
+
+<h2>3.3 [구동부 — 저수준 인터페이스] (motor_driver_node, 디버그/직접제어)</h2>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:24mm;">토픽</th><th style="width:34mm;">메시지 타입</th><th>내용</th></tr>
+  <tr><td>입력</td><td class="mono">/motor/cmd</td><td class="mono">std_msgs/Float32MultiArray</td><td>data=[motor1_rpm, motor2_rpm] 목표 rpm(모터축)</td></tr>
+  <tr><td>출력</td><td class="mono">/motor/velocity</td><td class="mono">std_msgs/Float32MultiArray</td><td>data=[motor1_rpm, motor2_rpm] 실측 속도</td></tr>
+  <tr><td>출력</td><td class="mono">/motor/status</td><td class="mono">std_msgs/Float32MultiArray</td><td>모터별 [전압V, 전류raw, statusword, error_code] (2모터 = 8개 원소, 순서=Node ID [1,2])</td></tr>
+  <tr><td>출력</td><td class="mono">/motor/error</td><td class="mono">std_msgs/Bool</td><td>true = 에러(드라이브 fault 또는 피드백 타임아웃)</td></tr>
+  <tr><td>출력</td><td class="mono">/motor/alarm</td><td class="mono">std_msgs/String</td><td>알람 메시지(에러 코드 / MOTOR_FEEDBACK_TIMEOUT)</td></tr>
+</table>
+<ul>
+  <li>두 바퀴 모두 "양수 = 전진" 규약 (좌/우 방향 반전은 드라이버가 내부 처리).</li>
+  <li>정수값(statusword/error_code)은 float 에 담겨 발행됩니다 (수신 측에서 반올림하여 사용).</li>
+</ul>
+
+<h2>3.4 [조명 LED·충전 릴레이 제어] (crevis_io_node, Crevis GN-9289 MODBUS TCP)</h2>
+<p>LED 6개를 각각 독립 토픽으로 on/off 합니다. (data=true → ON, false → OFF)</p>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:44mm;">토픽</th><th style="width:26mm;">메시지 타입</th><th>대상 LED</th></tr>
+  <tr><td>입력</td><td class="mono">/crevis/led/vision</td><td class="mono">std_msgs/Bool</td><td>VISION LED (비전 조명)</td></tr>
+  <tr><td>입력</td><td class="mono">/crevis/led/front</td><td class="mono">std_msgs/Bool</td><td>FRONT LED (전방 조명)</td></tr>
+  <tr><td>입력</td><td class="mono">/crevis/led/side</td><td class="mono">std_msgs/Bool</td><td>SIDE LED (측면 조명)</td></tr>
+  <tr><td>입력</td><td class="mono">/crevis/led/status_red</td><td class="mono">std_msgs/Bool</td><td>STATUS LED — 빨강</td></tr>
+  <tr><td>입력</td><td class="mono">/crevis/led/status_green</td><td class="mono">std_msgs/Bool</td><td>STATUS LED — 초록</td></tr>
+  <tr><td>입력</td><td class="mono">/crevis/led/status_blue</td><td class="mono">std_msgs/Bool</td><td>STATUS LED — 파랑</td></tr>
+</table>
+
+<h3>충전 릴레이</h3>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:44mm;">토픽</th><th style="width:26mm;">메시지 타입</th><th>대상</th></tr>
+  <tr><td>입력</td><td class="mono">/crevis/charging</td><td class="mono">std_msgs/Bool</td><td>Y01.06 충전 릴레이(true=ON)</td></tr>
+  <tr><td>출력</td><td class="mono">/crevis/charge_port_on</td><td class="mono">std_msgs/Bool</td><td>Y01.06 실제 출력 상태(readback)</td></tr>
+</table>
+
+<h3>충전 동작 및 상태 판정</h3>
+<pre><code>/crevis/charging=true             충전 릴레이 ON 명령
+       -&gt; /crevis/charge_port_on=true
+                                   Crevis Y01.06 릴레이 출력 ON 확인
+       -&gt; /bms/state.current &gt; 0
+                                   BMS에 충전 전류가 유입되므로 실제 충전 중으로 판정</code></pre>
+<ul>
+  <li>/crevis/charge_port_on=true는 릴레이 출력 상태이며, 이것만으로 실제 충전 중이라고 판단하지 않습니다. 최종 충전 여부는 /bms/state.current가 양수인지 확인합니다.</li>
+  <li>릴레이가 ON인데 current가 0 이하이면 충전기 연결, 접점, BMS 상태 및 완충 여부를 확인합니다.</li>
+</ul>
+
+<h3>상태 읽기</h3>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:46mm;">토픽</th><th style="width:30mm;">메시지 타입</th><th>내용</th></tr>
+  <tr><td>출력</td><td class="mono">/crevis/led_state/&lt;name&gt;</td><td class="mono">std_msgs/Bool</td><td>각 LED 실제 상태(readback, 개별)</td></tr>
+  <tr><td>출력</td><td class="mono">/crevis/led_state_all</td><td class="mono">std_msgs/String</td><td>LED 6개 통합 상태 한 줄 (편의용)</td></tr>
+  <tr><td>출력</td><td class="mono">/crevis/connected</td><td class="mono">std_msgs/Bool</td><td>Crevis 연결 상태(true=정상)</td></tr>
+  <tr><td>출력</td><td class="mono">/crevis/di</td><td class="mono">std_msgs/Int32MultiArray</td><td>디지털 입력 raw(16bit 워드)</td></tr>
+</table>
+<p class="small">/crevis/led_state_all 예:</p>
+<pre><code>"vision=1 front=0 side=0 status_red=1 status_green=0 status_blue=0 mask=0x09"</code></pre>
+<p class="small">(mask = 각 LED 비트 OR. vision=bit0 ~ status_blue=bit5). 6개를 한 번에 보고 싶을 때 사용.</p>
+<p>STATUS LED 는 RGB 1개(빨/초/파 3채널) — status_red/green/blue 세 토픽을 조합해 색을 냅니다. 순색/혼합색을 볼 때 안 쓰는 채널은 반드시 OFF (직전에 켠 값이 남아있으면 색이 섞임).</p>
+<table>
+  <tr><th style="width:30mm;">색</th><th>red</th><th>green</th><th>blue</th></tr>
+  <tr><td>빨강</td><td>ON</td><td>off</td><td>off</td></tr>
+  <tr><td>초록</td><td>off</td><td>ON</td><td>off</td></tr>
+  <tr><td>파랑</td><td>off</td><td>off</td><td>ON</td></tr>
+  <tr><td>노랑</td><td>ON</td><td>ON</td><td>off</td></tr>
+  <tr><td>시안(청록)</td><td>off</td><td>ON</td><td>ON</td></tr>
+  <tr><td>마젠타(자홍)</td><td>ON</td><td>off</td><td>ON</td></tr>
+  <tr><td>흰색</td><td>ON</td><td>ON</td><td>ON</td></tr>
+</table>
+<ul>
+  <li>on/off(디지털 출력)만 지원하며 밝기(PWM 디밍)는 불가합니다.</li>
+  <li>VISION/FRONT/SIDE 는 각각 단색 조명 1개입니다 (색 고정, on/off만).</li>
+</ul>
+
+<h2>3.5 [리프트 제어] (lift_driver, MDROBOT MD 드라이버 RS485)</h2>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:38mm;">토픽</th><th style="width:24mm;">메시지 타입</th><th>내용</th></tr>
+  <tr><td>입력</td><td class="mono">/lift/command</td><td class="mono">std_msgs/String</td><td>"up"/"down"/"stop"</td></tr>
+  <tr><td>입력</td><td class="mono">/lift/velocity_cmd</td><td class="mono">std_msgs/Int16</td><td>직접 속도지령[rpm](부호=방향), 고급/수동</td></tr>
+  <tr><td>입력</td><td class="mono">/lift/position_cmd</td><td class="mono">std_msgs/Int32</td><td>절대 목표위치[홀카운트] 로 이동 (위치제어, 홈잉 후에만)</td></tr>
+  <tr><td>입력</td><td class="mono">/lift/inc_position_cmd</td><td class="mono">std_msgs/Int32</td><td>상대 이동량[홀카운트] (현재위치 + 값)</td></tr>
+  <tr><td>입력</td><td class="mono">/lift/home</td><td class="mono">std_msgs/Bool</td><td>true=홈잉 시작(하부 리미트→원점 0), false=중단</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/position</td><td class="mono">std_msgs/Int32</td><td>현재 위치(홀 카운트, 증분)</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/status</td><td class="mono">std_msgs/String</td><td>"connected mode=.. homed=.. pos=.. status=.."</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/homed</td><td class="mono">std_msgs/Bool</td><td>원점 확립 여부(latched)</td></tr>
+</table>
+<ul>
+  <li>제어 방식: 속도명령 + 상/하 리미트스위치 자동정지. up=상승, down=하강, stop=정지. (현장 확인: +1000rpm=상승, -1000=하강. 속도는 config up_speed_rpm.)</li>
+  <li>위치제어(선택): /lift/position_cmd 로 절대위치, /lift/inc_position_cmd 로 상대이동. 위치는 증분(홀 카운트)이라 전원 재부팅 시 원점 소실 → 전원 사이클마다 /lift/home 로 1회 홈잉(하부 리미트까지 하강 후 원점 0)해야 절대위치가 재현됨. 위치제어 최대속도는 config posi_ctrl_vel_rpm. 수동명령(command/velocity_cmd)은 진행 중 위치이동/홈잉을 취소하고 수동모드로 전환. (config enable_position_control 로 on/off) ※ 진짜 절대엔코더(홈잉 불필요)는 별도 HW 필요(현재 미장착).</li>
+  <li>※ 홈잉(homed=1) 전에는 /lift/position_cmd(절대) 는 무시된다(경고 로그). 홈잉 없이 움직이려면 /lift/inc_position_cmd(상대) 또는 수동(up/down/velocity_cmd)을 쓴다. (auto_home_on_start 기본 false)</li>
+  <li>홈잉 후 속도 상향: 홈잉은 저속(안전) 유지, 홈잉 완료(homed=1) 후에는 수동 up/down 과 위치제어 이동 속도가 config post_home_speed_scale 배(기본 2배)로 상향됨. (velocity_cmd 는 사용자가 지정한 절대 rpm 이라 스케일 제외.)</li>
+  <li>스트로크(실측): 홈잉 원점 0 ~ 최대높이 7000 홀카운트. 절대위치는 이 범위 내로 지령.</li>
+  <li>연결: RS485. 현재 USB-RS485(FTDI, /dev/ttyUSB0)로 검증됨. 네이티브 COM1(/dev/ttyS0) 사용 시 RS485 A/B 극성만 맞추면 됨(드라이버 동일).</li>
+  <li>에러/상태 피드백: 별도 에러 토픽 없이 /lift/status 문자열에 포함된다.</li>
+</ul>
+<p>형식: <code>"&lt;connected|NO_DATA&gt; mode=&lt;MANUAL|POSITION|HOMING&gt; homed=&lt;0|1&gt; pos=&lt;위치&gt; [target=&lt;목표&gt;] status=&lt;OK 또는 알람비트&gt;"</code></p>
+<ul>
+  <li>connected = 정상 통신 / NO_DATA = 통신 두절(timeout)</li>
+  <li>mode = 현재 제어모드, homed = 원점 확립 여부, target = POSITION 모드일 때 목표위치</li>
+  <li>status=OK = 이상 없음</li>
+  <li>status= 뒤 알람비트(공백 구분, 드라이브 상태비트 디코딩): CTRL_FAIL / OVER_VOLT / OVER_TEMP / OVER_LOAD / HALL_FAIL / INV_VEL / STALL</li>
+</ul>
+<pre><code>예)  "connected pos=512 status=OVER_LOAD STALL"  (과부하 + 스톨 알람)
+     "NO_DATA pos=510 status=OK"                 (드라이브 응답 없음)</code></pre>
+
+<h2>3.6 [긴급정지 — 하드웨어 Safety PLC]</h2>
+<p>긴급정지는 Safety PLC(PILZ PNOZmulti, 192.168.100.103) 하드웨어 안전회로가 담당합니다. 비상정지 버튼·범퍼가 눌리면 PLC 안전회로가 모터 전원/STO 를 물리적으로 차단하며, 이는 ROS·PC 와 무관하게 하드웨어 배선만으로 동작합니다(안전인증).</p>
+<ul>
+  <li>ROS 측은 이 하드 비상정지 상태를 §3.7 /safety/estop 통합 토픽(및 /safety/input/*)으로 "감지"만 하며, 정지 자체를 소프트웨어로 수행하지 않습니다.</li>
+  <li>(구버전에 있던 소프트웨어 /estop 토픽은 제거되었습니다 — v0.11. 하드 Safety PLC 로 충분하며, 상위 제어단에서 정지가 필요하면 각 액추에이터에 직접 정지명령(구동부 /cmd_vel 0)을 내립니다.)</li>
+</ul>
+
+<h3>상태·에러 모니터링 종합</h3>
+<p>각 서브시스템이 상태/에러를 ROS 토픽으로 발행하며, 이를 합쳐 알람·에러 피드백을 제공한다:</p>
+<ul>
+  <li>구동부 : <code>/motor/error</code> (Bool), <code>/motor/alarm</code> (String) — 드라이브 fault / 피드백 타임아웃</li>
+  <li>리프트 : <code>/lift/status</code> (String) — status=OK 또는 알람비트(OVER_LOAD/STALL 등), NO_DATA</li>
+  <li>배터리 : <code>/bms/state.power_supply_health</code>, <code>/bms/state.present</code></li>
+  <li>Safety PLC : <code>/safety/input/*</code>, <code>/safety/output/*</code>, <code>/safety/state_all</code>, <code>/safety/connected</code></li>
+  <li>긴급정지 : <code>/safety/estop</code> (하드 비상정지 통합상태, §3.7)</li>
+</ul>
+
+<h2>3.7 [Safety PLC I/O] (safety_io_node, PILZ PNOZmulti 2)</h2>
+<p>Safety PLC의 물리 I/O 상태를 개별 Bool 토픽으로 발행합니다. 모든 값은 PLC 단자의 raw 논리 상태이며 true만으로 안전 상태라고 판단하면 안 됩니다.</p>
+
+<h3>입력 상태</h3>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:60mm;">토픽</th><th style="width:16mm;">PLC I/O</th><th>내용</th></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_emergency_1b</td><td>I1</td><td>EMERGENCY 1b</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_emergency_2b</td><td>I2</td><td>EMERGENCY 2b</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_auto_mode</td><td>I4</td><td>AUTO MODE</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_manual_mode</td><td>I5</td><td>MANUAL MODE</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_reset_switch</td><td>I6</td><td>RESET SWITCH</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_brake_release_sw</td><td>I7</td><td>BRAKE RELEASE SWITCH</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_bumper_front</td><td>I9</td><td>BUMPER FRONT</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/input/safety_bumper_rear</td><td>I10</td><td>BUMPER REAR</td></tr>
+</table>
+
+<h3>출력 상태 readback</h3>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:60mm;">토픽</th><th style="width:16mm;">PLC I/O</th><th>내용</th></tr>
+  <tr><td>출력</td><td class="mono">/safety/output/motor_sto_01sr</td><td>O0</td><td>01SR MOTOR STO</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/output/motor_sto_02sr</td><td>O1</td><td>02SR MOTOR STO</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/output/traction_motor_power_on</td><td>O3</td><td>TRACTION MOTOR POWER</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/output/brake_release</td><td>IM16</td><td>BRAKE RELEASE (FC02 0x4010)</td></tr>
+</table>
+<p class="small">※ IM16은 Auxiliary Output이지만 Config I/O 상태는 input process image의 0x4010에서 읽습니다. 토픽은 신호 방향에 따라 /safety/output 아래에 발행합니다.</p>
+
+<h3>통합 상태</h3>
+<table class="wide">
+  <tr><th class="col-dir">방향</th><th style="width:38mm;">토픽</th><th style="width:24mm;">메시지 타입</th><th>내용</th></tr>
+  <tr><td>출력</td><td class="mono">/safety/connected</td><td class="mono">std_msgs/Bool</td><td>Safety PLC 연결 상태(true=정상)</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/state_all</td><td class="mono">std_msgs/String</td><td>위 개별 I/O 상태를 한 줄로 표시(편의용)</td></tr>
+  <tr><td>출력</td><td class="mono">/safety/estop</td><td class="mono">std_msgs/Bool</td><td>하드 비상정지 통합상태 (true=비상 활성)</td></tr>
+</table>
+
+<h3>하드 비상정지 통합 토픽 — /safety/estop</h3>
+<p>여러 물리 안전접점 + traction 전원 상태를 묶어 하나의 Bool 로 발행합니다(고객사 요청). true=비상 활성.</p>
+<ul>
+  <li><strong>묶음</strong> : EMERGENCY 1b + 2b + BUMPER FRONT + REAR (입력, config 로 변경 가능)</li>
+  <li><strong>판정</strong> : 아래 중 하나라도 성립하면 true
+    <ul>
+      <li>(a) 묶인 입력 접점 중 하나라도 triggered (OR), 또는</li>
+      <li>(b) traction 전원 출력(traction_motor_power_on)이 off</li>
+    </ul>
+  </li>
+  <li><strong>(b)의 의미</strong> : 범퍼는 모멘터리라 떼면 입력은 0으로 돌아가지만, PLC 가 STO 를 래치해 traction 전원을 계속 off 로 유지한다. 따라서 전원이 off 인 동안은 estop=true 를 유지하고, 리셋으로 전원이 복구(on)되어야 false 가 된다.</li>
+  <li><strong>fail-safe</strong> : 노드 시작 직후 및 Safety PLC 통신두절 시 true(비상)로 발행</li>
+  <li><strong>극성(실장비 확정 2026-07-27)</strong> :
+    <ul>
+      <li>EMERGENCY 1b/2b = b접점(NC), idle=1·눌림=0 → active_low: true</li>
+      <li>BUMPER front/rear = a접점(NO, 모멘터리), idle=0·눌림=1 → active_low: false</li>
+      <li>traction_motor_power_on : idle(정상)=1, STO/비상 시 0</li>
+    </ul>
+  </li>
+</ul>
+<div class="warn">
+⚠️ 이는 상태 피드백(read-only)이며 안전인증 정지장치가 아닙니다. 물리 차단은 Safety PLC 회로가 담당하고, 이 토픽은 상위에서 하드 비상정지 발생을 감지하는 용도입니다.
+</div>
+<p class="small">* config: hardware_estop_sources([{name, active_low}], []이면 기능 off), hardware_estop_power_output(전원 출력명, 기본 traction_motor_power_on, ""이면 (b)조건 비활성). 발행 토픽명 = &lt;topic_prefix&gt;/estop.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- §4 검증 가이드 -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)</h1>
+<p>고객사에서 직접 ROS 통신/기능을 확인하는 절차입니다. (같은 ROS master 를 바라봐야 합니다. 같은 로봇 PC 에서 실행하면 기본값으로 연결됩니다. 다른 PC 에서 접속 시 <code>ROS_MASTER_URI=http://&lt;로봇IP&gt;:11311</code>, 양쪽 ROS_IP 설정 필요)</p>
+
+<h2>4.0 사전 준비</h2>
+<ul>
+  <li>로봇 PC 에서 드라이버 실행: <code>roslaunch motor_driver bringup.launch</code></li>
+  <li>배터리 확인 시: <code>roslaunch bms_driver bms.launch</code></li>
+  <li>조명 LED 확인 시: <code>roslaunch crevis_io_driver crevis_io.launch</code></li>
+  <li>리프트 확인 시: <code>roslaunch lift_driver lift.launch</code></li>
+  <li>Safety PLC 확인 시: <code>roslaunch safety_io_driver safety_io.launch</code></li>
+  <li>토픽 목록 확인: <code>rostopic list</code></li>
+</ul>
+
+<h2>4.1 통신 확인 (토픽 존재/연결)</h2>
+<pre><code>rostopic list
+  기대: /cmd_vel /odom /bms/state /motor/velocity /motor/status /motor/error ...
+        (조명) /crevis/led/* /crevis/led_state_all /crevis/connected
+        (리프트) /lift/command /lift/position /lift/status
+        (Safety PLC) /safety/input/* /safety/output/* /safety/connected
+rostopic info /odom          # 발행자(publisher)가 base_controller 인지 확인
+rostopic hz /odom            # 주기적으로 발행되는지 (약 50Hz)</code></pre>
+
+<h2>4.2 구동부(주행) 검증</h2>
+<p class="small">[수신 확인] 새 터미널:</p>
+<pre><code>rostopic echo /odom</code></pre>
+<p class="small">[명령 송신] 전진 0.2 m/s (안전한 공간 / 바퀴 들고):</p>
+<pre><code>rostopic pub -r 10 /cmd_vel geometry_msgs/Twist "{linear: {x: 0.2}, angular: {z: 0.0}}"
+  기대: 로봇 전진, /odom 의 twist.linear.x ~ 0.2, position.x 증가</code></pre>
+<p class="small">제자리 회전:</p>
+<pre><code>rostopic pub -r 10 /cmd_vel geometry_msgs/Twist "{linear: {x: 0.0}, angular: {z: 0.5}}"
+  기대: 반시계 회전, /odom 의 twist.angular.z ~ 0.5</code></pre>
+<p class="small">정지: Ctrl-C (또는 명령 중단) → 0.5s 후 자동 정지</p>
+<p class="small">[실측 속도]:</p>
+<pre><code>rostopic echo /motor/velocity   # 좌/우 바퀴 rpm</code></pre>
+
+<h2>4.3 배터리 상태 검증</h2>
+<pre><code>rostopic echo /bms/state
+  확인 항목:
+    percentage           → 잔량 (0~1)
+    power_supply_status  → 1충전 / 2방전 / 4완충
+    voltage, current, temperature, present(true)</code></pre>
+<p class="small">충전기 연결/분리 시 power_supply_status 가 1↔2 로 바뀌는지 확인.</p>
+
+<h2>4.4 에러/상태 모니터링 검증</h2>
+<pre><code>rostopic echo /motor/error    # 정상 false, 이상 시 true
+rostopic echo /motor/alarm    # 에러 발생 시 메시지 출력
+rostopic echo /motor/status   # 전압/전류/statusword/error_code</code></pre>
+
+<h2>4.5 조명 LED 및 충전 릴레이 검증 (crevis_io)</h2>
+<p class="small">[사전] 로봇 PC 에서: <code>roslaunch crevis_io_driver crevis_io.launch</code></p>
+<p class="small">[연결 확인]:</p>
+<pre><code>rostopic echo /crevis/connected      # true 여야 정상 (false=Crevis 미연결/IP 확인)</code></pre>
+<p class="small">[LED 켜기/끄기]:</p>
+<pre><code>rostopic pub -1 /crevis/led/front       std_msgs/Bool "data: true"    # 전방 조명 ON
+rostopic pub -1 /crevis/led/status_red  std_msgs/Bool "data: true"    # 상태등 빨강 ON
+rostopic pub -1 /crevis/led/front       std_msgs/Bool "data: false"   # 전방 조명 OFF
+  기대: 실제 LED 점등/소등, /crevis/led_state/&lt;name&gt; 값이 그에 맞게 바뀜</code></pre>
+<p class="small">[상태 readback]:</p>
+<pre><code>rostopic echo /crevis/led_state/front       # 개별
+rostopic echo /crevis/led_state_all          # 6개 통합 한 줄(mask 포함)</code></pre>
+<p class="small">[충전 릴레이 켜기/끄기]:</p>
+<pre><code>rostopic pub -1 /crevis/charging std_msgs/Bool "data: true"
+rostopic echo /crevis/charge_port_on          # Y01.06 ON이면 true
+rostopic echo /bms/state
+  기대: charge_port_on=true 확인 후 current &gt; 0 A이면 실제 충전 중
+        (power_supply_status=1 CHARGING도 함께 확인)
+rostopic pub -1 /crevis/charging std_msgs/Bool "data: false"
+rostopic echo /crevis/charge_port_on          # Y01.06 OFF이면 false
+rostopic echo /bms/state                      # 충전 전류가 유입되지 않는지 확인</code></pre>
+<ul>
+  <li>명령은 성공(로그 ON/OFF)인데 LED 가 안 켜지면 배선/전원 또는 Crevis IP 확인.</li>
+  <li>명령한 색과 실제 켜지는 LED/색이 다르면 crevis_io.yaml 의 leds 비트매핑을 배선에 맞게 조정.</li>
+</ul>
+
+<h2>4.6 리프트 검증 (lift_driver)</h2>
+<p class="small">[사전] 로봇 PC 에서: <code>roslaunch lift_driver lift.launch</code></p>
+<p class="small">[상태]:</p>
+<pre><code>rostopic echo /lift/position    # 손으로 움직이면 값 변함(엔코더)
+rostopic echo /lift/status      # connected pos=.. status=OK
+  (status 에 NO_DATA 가 반복되면 포트/배선/baud 확인)</code></pre>
+<div class="warn">[동작] ⚠️ 리프트 주변 안전 확보 후:</div>
+<pre><code>rostopic pub -1 /lift/command std_msgs/String "data: up"    # 상승(리미트서 자동정지)
+rostopic pub -1 /lift/command std_msgs/String "data: down"  # 하강
+rostopic pub -1 /lift/command std_msgs/String "data: stop"  # 정지</code></pre>
+<p class="small">* 위치(/lift/position)는 증분 카운트 → 전원 재부팅 후 0 근처로 리셋됨(원점 재설정 필요).</p>
+<div class="warn">[위치제어] ⚠️ 리프트 주변 안전 확보 후 (enable_position_control: true):</div>
+<pre><code># 1) 홈잉 — 하부 리미트까지 하강 후 원점 0 (전원 사이클마다 1회)
+rostopic pub -1 /lift/home std_msgs/Bool "data: true"
+rostopic echo /lift/status     # mode=HOMING → homed=1, mode=MANUAL 되면 완료
+# 2) 절대위치 이동 (예: 5000 카운트 지점)
+rostopic pub -1 /lift/position_cmd std_msgs/Int32 "data: 5000"
+# 3) 상대 이동 (예: 현재에서 +1000)
+rostopic pub -1 /lift/inc_position_cmd std_msgs/Int32 "data: 1000"</code></pre>
+<ul>
+  <li>위치제어 최대속도 = config posi_ctrl_vel_rpm (0이면 up_speed_rpm, 둘 다 0이면 드라이브 기본 2000rpm).</li>
+  <li>홈잉 완료판정 = 하강 중 위치정지 감지(home_stall_counts/home_stall_sec 로 튜닝).</li>
+  <li>카운트↔실거리 환산은 현장 실측으로 별도 확정 필요.</li>
+</ul>
+
+<h2>4.7 긴급정지 검증</h2>
+<p>긴급정지는 하드웨어 Safety PLC 가 담당하며(§3.6), ROS 는 그 상태를 감지만 합니다. 비상버튼/범퍼를 눌러 물리 정지가 걸리는지 확인하고, ROS 통합상태(/safety/estop)는 아래 §4.8 에서 확인합니다. (소프트웨어 /estop 토픽은 제거됨 — v0.11)</p>
+
+<h2>4.8 Safety PLC I/O 검증 (safety_io_driver)</h2>
+<p class="small">[상태 모니터링]</p>
+<pre><code>roslaunch safety_io_driver safety_io.launch
+rostopic echo /safety/connected
+rostopic echo /safety/state_all
+rostopic echo /safety/input/safety_emergency_1b
+rostopic echo /safety/input/safety_bumper_front
+rostopic echo /safety/output/brake_release
+rostopic echo /safety/estop
+  기대: /safety/connected=true, PLC 표시창/실제 스위치와 개별 Bool 상태 일치.
+        비상버튼/범퍼를 누르면 /safety/estop=true, 해제하면 false.
+        (만약 반대로 나오면 config 의 해당 접점 active_low 를 뒤집어 극성 보정)</code></pre>
+</div>
+
+<!-- ============================================================ -->
+<!-- §5 파라미터 -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>5. 파라미터 (참고)</h1>
+<div class="note">
+적용방법: 아래 값들은 각 패키지의 config/*.yaml 에 정의되며, 노드가 시작할 때 1회 읽는 ROS private 파라미터(~&lt;이름&gt;)다. 변경하려면 해당 yaml 을 수정한 뒤 노드를 재시작한다.<br>
+── 단, 실제 실행되는 것은 install 공간의 사본이다 (로봇: <code>~/navifra/install/share/&lt;패키지&gt;/config/*.yaml</code>). 소스 yaml 을 고쳤으면 install 재빌드·재배포(권장)하거나, 로봇의 install 쪽 yaml 을 직접 편집해야 반영된다. (roslaunch 인자 override 도 가능하나 표준은 yaml 편집.)
+</div>
+
+<h2>현장 보정값 오버라이드 — ~/navifra/param.yaml (재빌드 불필요, 권장 튜닝 경로)</h2>
+<p>자주 만지는 보정값(주행 캘리브레이션·모터 방향·리프트 속도 등)은 로봇의 <code>~/navifra/param.yaml</code> 한 파일에서 편집한다. 드라이버 시작 시(run_robot.sh) 이 파일이 각 패키지 기본 config 뒤에 로드되어 같은 키를 덮어쓴다(override, param.yaml 이 이김).</p>
+<ul>
+  <li><strong>구조</strong>: 최상위 키 = 노드 이름(base_controller / motor_driver_node / lift_driver), 그 아래 파라미터. 여기 없는 키는 기본 config 값 그대로.</li>
+  <li><strong>편집</strong>: <code>nano ~/navifra/param.yaml</code> → 저장 후 드라이버 재시작. install 재빌드/재배포 불필요.</li>
+  <li><strong>생성/보존</strong>: 배포(deploy) 시 파일이 없으면 템플릿에서 생성, 있으면 보존(현장값 유지). 최신 템플릿은 <code>~/navifra/param.default.yaml</code> 로도 갱신됨(새 항목 확인용).</li>
+  <li><strong>현재 노출 항목</strong>: base_controller(wheel_radius/wheel_separation/gear_ratio/swap_lr), motor_driver_node(motor_directions), lift_driver(auto_home_on_start/up_speed_rpm/posi_ctrl_vel_rpm/post_home_speed_scale/in_position_tol). (항목 추가는 저장소 scripts/param.yaml 편집)</li>
+</ul>
+
+<h2>config/base_controller.yaml (로봇 물리값 — 실측 확정값)</h2>
+<table>
+  <tr><th style="width:38mm;">파라미터</th><th>내용</th></tr>
+  <tr><td class="mono">wheel_radius</td><td>바퀴 반경 [m] (0.0825, = 지름 0.165m / 2)</td></tr>
+  <tr><td class="mono">wheel_separation</td><td>좌우 바퀴 간격 [m] (0.65)</td></tr>
+  <tr><td class="mono">gear_ratio</td><td>모터축:바퀴 감속비 (9)</td></tr>
+</table>
+
+<h2>config/motor_driver.yaml</h2>
+<table>
+  <tr><th style="width:38mm;">파라미터</th><th>내용</th></tr>
+  <tr><td class="mono">drive_motor_ids</td><td>[1, 2] (CANopen Node ID, 순서 = /motor/cmd 데이터 순서)</td></tr>
+  <tr><td class="mono">motor_directions</td><td>[1, 1] 모터별 회전방향 부호(+1/-1). 반대로 도는 모터는 -1 (명령·피드백에 곱함)</td></tr>
+  <tr><td class="mono">cmd_timeout_sec</td><td>1.0 (명령 미수신 시 정지)</td></tr>
+  <tr><td class="mono">feedback_timeout_sec</td><td>0.5 (피드백 미수신 시 알람)</td></tr>
+  <tr><td class="mono">fault_reset_interval_sec</td><td>2.0 (드라이브 fault 자동 리셋 재시도 최소 간격)</td></tr>
+</table>
+
+<h2>config/bms_driver.yaml</h2>
+<table>
+  <tr><th style="width:38mm;">파라미터</th><th>내용</th></tr>
+  <tr><td class="mono">can_device</td><td>can1 (250K)</td></tr>
+  <tr><td class="mono">design_capacity</td><td>배터리 설계 용량 [Ah] (설정 시 잔량 표시 보완)</td></tr>
+</table>
+
+<h2>config/crevis_io.yaml (crevis_io_driver 패키지)</h2>
+<table>
+  <tr><th style="width:38mm;">파라미터</th><th>내용</th></tr>
+  <tr><td class="mono">ip</td><td>Crevis GN-9289 IP (현장 확정 192.168.100.104) — 실제 장비 IP 로 설정</td></tr>
+  <tr><td class="mono">port</td><td>502 (MODBUS TCP)</td></tr>
+  <tr><td class="mono">write_mode</td><td>coil (권장, 개별 비트) | register (16bit 묶음)</td></tr>
+  <tr><td class="mono">output_coil_base</td><td>0x1000 (출력 코일 시작주소, 슬롯 위치 다르면 16씩 가산)</td></tr>
+  <tr><td class="mono">leds</td><td>LED 이름↔출력비트 매핑 (vision=0 ~ status_blue=5)</td></tr>
+  <tr><td class="mono">charging_topic</td><td>/crevis/charging</td></tr>
+  <tr><td class="mono">charging_bit</td><td>6 (Y01.06, coil 0x1006)</td></tr>
+  <tr><td class="mono">charging_off_on_shutdown</td><td>정상 노드 종료 시 충전 릴레이 OFF (기본 true)</td></tr>
+</table>
+
+<h2>config/lift_driver.yaml</h2>
+<table>
+  <tr><th style="width:38mm;">파라미터</th><th>내용</th></tr>
+  <tr><td class="mono">port</td><td>RS485 포트 (/dev/ttyS0 = COM1, USB-485 시 /dev/ttyUSB0)</td></tr>
+  <tr><td class="mono">baud</td><td>19200</td></tr>
+  <tr><td class="mono">controller_id</td><td>드라이브 국번(ID) (1)</td></tr>
+  <tr><td class="mono">up_speed_rpm</td><td>상승 속도 [rpm] (현장 확인 +1000=상승, 하강은 -값)</td></tr>
+  <tr><td class="mono">poll_rate</td><td>위치/상태 폴링 [Hz] (10.0)</td></tr>
+  <tr><td class="mono">timeout_sec</td><td>응답 없으면 /lift/status = NO_DATA (1.0)</td></tr>
+</table>
+<p class="small">── 위치제어 (position_cmd / inc_position_cmd / home) ──</p>
+<table>
+  <tr><th style="width:38mm;">파라미터</th><th>내용</th></tr>
+  <tr><td class="mono">enable_position_control</td><td>위치제어 토픽·기능 on/off (true)</td></tr>
+  <tr><td class="mono">posi_ctrl_vel_rpm</td><td>위치제어 기준속도 [rpm] (0=up_speed_rpm 사용, 둘 다 0이면 드라이브 기본 2000)</td></tr>
+  <tr><td class="mono">home_speed_rpm</td><td>홈잉(하강) 속도크기 [rpm] (0=|up_speed_rpm|, 방향은 자동 하강)</td></tr>
+  <tr><td class="mono">home_stall_counts</td><td>위치변화가 이 값 이하면 '정지'로 간주 (5)</td></tr>
+  <tr><td class="mono">home_stall_sec</td><td>위 정지가 이 시간 이상 지속되면 홈(하부 리미트) 도달 판정 [s] (1.5)</td></tr>
+  <tr><td class="mono">home_min_sec</td><td>홈잉 시작 후 최소 경과시간(스핀업 오검출 방지) [s] (1.0)</td></tr>
+  <tr><td class="mono">home_timeout_sec</td><td>이 시간 내 홈 못 찾으면 중단, NOT homed [s] (40.0)</td></tr>
+  <tr><td class="mono">in_position_tol</td><td>|목표-현재| 이 값 이하면 위치이동 완료로 간주 [count] (20)</td></tr>
+  <tr><td class="mono">auto_home_on_start</td><td>통신 확보 후 부팅/런치 시 1회 자동 홈잉 (기본 false. ~/navifra/param.yaml 로 조정) ⚠️ true면 부팅/런치 시 리프트가 자동으로 하강해 하부 리미트로 감 — 주변 안전 확보</td></tr>
+  <tr><td class="mono">post_home_speed_scale</td><td>홈잉 완료 후 수동 up/down·위치이동 속도 배율 (2.0, 1.0=미적용)</td></tr>
+</table>
+<p class="small">※ 스트로크(실측): 홈잉 원점 0 ~ 최대높이 7000 홀카운트. 절대위치는 이 범위 내로 지령.</p>
+
+<h2>config/safety_io.yaml (safety_io_driver 패키지)</h2>
+<table>
+  <tr><th style="width:38mm;">파라미터</th><th>내용</th></tr>
+  <tr><td class="mono">ip</td><td>PILZ PNOZ m ES ETH IP (192.168.100.103)</td></tr>
+  <tr><td class="mono">port</td><td>502 (MODBUS TCP)</td></tr>
+  <tr><td class="mono">unit_id</td><td>1</td></tr>
+  <tr><td class="mono">publish_rate</td><td>I/O 상태 poll/발행 주기 [Hz] (기본 10.0)</td></tr>
+  <tr><td class="mono">config_io_outputs</td><td>Config I/O 출력 이름↔input process image 비트 매핑 (brake_release=16, FC02 0x4010)</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<!-- §6 알려진 이슈 / 미구현 -->
+<!-- ============================================================ -->
+<div class="section">
+<h1>6. 알려진 이슈 / 미구현</h1>
+
+<h2>[이슈] 모터 servo ON(enable) 실패</h2>
+<ul>
+  <li>현상: 드라이버는 정상 동작하나, 드라이브가 operation-enable 시도 순간 내부 FAULT(에러코드 0x2601/0x2602 비트)로 진입하여 servo ON 이 안 됨.</li>
+  <li>원인 추정: 드라이브 측 하드웨어 enable/STO 입력 또는 드라이브 파라미터 설정. (CAN 통신·소프트웨어 시퀀스는 정상 확인됨)</li>
+  <li>조치: 하드웨어 enable 배선 / 드라이브 DIN(enable) 설정 확인 필요 (진행 중).</li>
+</ul>
+
+<h2>[완료] 조명 LED 제어(crevis_io_driver)</h2>
+<p>C++ 전환 + 실장비 연동 검증 완료(v0.3, 2026-07-14). Crevis GN-9289 = 192.168.100.104(로봇 eno1 192.168.100.100/24 대역), 502 정상. LED 6개 개별 on/off + readback + 통합상태(/crevis/led_state_all) 동작 확인. 입력 레지스터(/crevis/di)는 1워드 수신 확인(전체 입력 IO 맵은 미확보 → 필요시 확장).</p>
+
+<h2>[참고] 리프트</h2>
+<p>구현 완료(lift_driver). 위치는 증분(엔코더)이라 전원 재부팅 후 엔코더 휘발. 포지션 제어로 사용할 시 호밍(원점 재설정) 구현 필요.</p>
+
+<h2>[확정] 긴급정지</h2>
+<p>하드웨어 Safety PLC(192.168.100.103)가 담당한다(§3.6). 소프트웨어 /estop 토픽은 제거되었고(v0.11), ROS 는 하드 비상정지 상태를 /safety/estop 통합 토픽으로 감지만 한다. 개별 접점 비트/극성(눌림=0/1)은 실장비 확정 필요(§3.7). (하드 E-stop 배선/신호 확정 시 §3.3 traction_enable 인터록과 연동 가능)</p>
+</div>
