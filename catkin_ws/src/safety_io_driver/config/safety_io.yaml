@@ -14,6 +14,24 @@ output_discrete_base: 0x4020   # physical O0 address; read through O3
 input_count: 17
 output_count: 4
 
+# Unified hardware E-stop state, published on <topic_prefix>/estop (=/safety/estop).
+# true = emergency ACTIVE. Also published true on startup and on PLC comm loss (fail-safe).
+# ACTIVE when: any listed input source is triggered, OR the traction-power output below
+# is off (STO latched — a momentary bumper clears its input on release, but the PLC keeps
+# traction power off until reset). Set hardware_estop_sources: [] to disable the topic.
+#
+# Verified on hardware 2026-07-27 (idle=False; emergency & front/rear bumper -> True):
+#   EMERGENCY 1b/2b : b-contact (NC)  — idle=1, pressed=0  -> active_low: true
+#   BUMPER front/rear: a-contact (NO), momentary — idle=0, pressed=1 -> active_low: false
+#   traction_motor_power_on: idle=1 (power on), STO/bumper -> 0 -> forces E-stop true
+hardware_estop_sources:
+  - {name: "safety_emergency_1b", active_low: true}
+  - {name: "safety_emergency_2b", active_low: true}
+  - {name: "safety_bumper_front", active_low: false}
+  - {name: "safety_bumper_rear",  active_low: false}
+# Output signal that must be ON (true) or E-stop is forced true. "" disables this condition.
+hardware_estop_power_output: "traction_motor_power_on"
+
 # 건국대학교 폴리싱 로봇 SPLC.pdf, page 018, SAFETY PLC CIRCUIT -01
 # Values are raw physical terminal states (true=PLC input/output logic high).
 inputs:

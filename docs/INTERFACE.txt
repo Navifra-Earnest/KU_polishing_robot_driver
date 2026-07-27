@@ -30,6 +30,18 @@
                      0x4010에서 읽고 /safety/output/brake_release로 발행.
    2026-07-15  v0.9  충전 상태 확인 절차 추가 — Crevis 충전 명령 후 릴레이 readback을
                      확인하고, /bms/state.current가 양수이면 실제 충전 중으로 판정.
+   2026-07-23  v0.10 하드 비상정지 통합 토픽 추가 — safety_io_driver 가 EMERGENCY 1b/2b +
+                     BUMPER(front/rear)를 묶어 /safety/estop(Bool, true=비상)로 발행.
+                     접점별 극성(active_low) config 지정, 시작·통신두절 시 fail-safe true.
+                     (개별 접점 비트/극성은 실장비 확정 필요 — §3.7)
+   2026-07-27  v0.11 소프트웨어 긴급정지 /estop 제거 — 긴급정지는 하드웨어 Safety PLC 가
+                     전담(§3.6). motor_driver·lift_driver 의 /estop 구독/정지로직 삭제.
+                     ROS 는 하드 비상정지 상태를 /safety/estop 으로 감지만 함.
+   2026-07-27  v0.12 /safety/estop 판정 개선 — 입력 접점 OR 에 더해 traction 전원 출력
+                     (traction_motor_power_on) off 를 함께 반영. 범퍼(모멘터리)를 떼도
+                     PLC STO 래치로 전원이 off 인 동안 estop=true 유지, 리셋 복구 시 false.
+                     범퍼 극성 active_low=false 로 실장비 확정(§3.7). ⚠️로봇 배포/실장비
+                     재검증은 미완(연결 두절) — 다음 접속 시 확인 필요.
    (이후 기능 추가 시 이 문서를 계속 갱신)
 
 --------------------------------------------------------------------------------
@@ -46,9 +58,9 @@
        출력  /crevis/charge_port_on std_msgs/Bool       (Crevis 충전 릴레이 실제 출력 상태)
        입력  /lift/command   std_msgs/String            (리프트: "up"/"down"/"stop")
        출력  /lift/position  std_msgs/Int32             (리프트 위치, 홀 카운트 증분)
-       입력  /estop          std_msgs/Bool              (긴급정지: true=정지, false=해제)
        출력  /safety/input/* std_msgs/Bool              (Safety PLC 물리 입력 raw 상태)
        출력  /safety/output/* std_msgs/Bool             (Safety PLC 물리 출력 raw 상태)
+       출력  /safety/estop   std_msgs/Bool              (하드 비상정지 통합상태: true=비상 활성)
  - 실행(로봇):   roslaunch motor_driver bringup.launch    (구동부)
                  roslaunch bms_driver bms.launch        (배터리)
                  roslaunch crevis_io_driver crevis_io.launch  (조명 LED / Crevis I/O)
@@ -81,7 +93,7 @@
   Safety PLC     : 192.168.100.103
   Crevis IO      : 192.168.100.104
 
-  ※ LAN Hub에 연결되는 장비는 모두 192.168.100.xxx 대역으로 설정 바랍니다.
+  ※ 이외에 LAN Hub에 연결되는 장비는 모두 192.168.100.xxx 대역으로 설정 바랍니다.
 
 
 AP(무선) 네트워크:
@@ -263,7 +275,7 @@ AP(무선) 네트워크:
  * 위치제어(선택): /lift/position_cmd 로 절대위치, /lift/inc_position_cmd 로 상대이동.
    위치는 증분(홀 카운트)이라 전원 재부팅 시 원점 소실 → 전원 사이클마다 /lift/home 로
    1회 홈잉(하부 리미트까지 하강 후 원점 0)해야 절대위치가 재현됨. 위치제어 최대속도는
-   config posi_ctrl_vel_rpm. 수동명령(command/velocity_cmd)이나 /estop 은 진행 중
+   config posi_ctrl_vel_rpm. 수동명령(command/velocity_cmd)은 진행 중
    위치이동/홈잉을 취소하고 수동모드로 전환. (config enable_position_control 로 on/off)
    ※ 진짜 절대엔코더(홈잉 불필요)는 별도 HW 필요(현재 미장착).
  * 홈잉 후 속도 상향: 홈잉은 저속(안전) 유지, 홈잉 완료(homed=1) 후에는 수동 up/down 과
@@ -282,20 +294,16 @@ AP(무선) 네트워크:
    예)  "connected pos=512 status=OVER_LOAD STALL"  (과부하 + 스톨 알람)
         "NO_DATA pos=510 status=OK"                 (드라이브 응답 없음)
 
- 3.6 [긴급정지 — 소프트웨어 E-stop]  (구동부 + 리프트 공통)
+ 3.6 [긴급정지 — 하드웨어 Safety PLC]
  --------------------------------------------------------------------------
- 방향  토픽       메시지 타입        내용
- ----  --------   ---------------   ------------------------------------------
- 입력  /estop     std_msgs/Bool      true = 긴급정지, false = 해제 (sticky, 명시적 해제 필요)
+ 긴급정지는 Safety PLC(PILZ PNOZmulti, 192.168.100.103) 하드웨어 안전회로가 담당합니다.
+ 비상정지 버튼·범퍼가 눌리면 PLC 안전회로가 모터 전원/STO 를 물리적으로 차단하며,
+ 이는 ROS·PC 와 무관하게 하드웨어 배선만으로 동작합니다(안전인증).
 
- * 동작: /estop=true 발행 시
-     - 구동부: 즉시 목표속도 0 + 모터 servo OFF (인터록 경유). 이후 /motor/cmd 무시.
-     - 리프트: 즉시 정지. 이후 /lift/command·/lift/velocity_cmd 무시.
-   /estop=false 를 발행해야 해제되어 다시 명령을 받는다(자동 해제 없음).
- * 구동부·리프트가 같은 /estop 토픽을 구독하므로 한 번 발행으로 둘 다 정지한다.
- * ⚠️ 이것은 소프트웨어 정지이며 안전인증(safety-rated) E-stop 이 아니다.
-   물리 비상정지 버튼/안전회로는 Safety PLC(192.168.100.103) 하드 E-stop 으로 구성해야 하며,
-   ROS /estop 은 상위 로직/원격에서의 소프트 정지 용도다. 둘의 연동 방식은 §6 참고(협의 필요).
+ * ROS 측은 이 하드 비상정지 상태를 §3.7 /safety/estop 통합 토픽(및 /safety/input/*)으로
+   "감지"만 하며, 정지 자체를 소프트웨어로 수행하지 않습니다.
+ * (구버전에 있던 소프트웨어 /estop 토픽은 제거되었습니다 — v0.11. 하드 Safety PLC 로 충분하며,
+   상위 제어단에서 정지가 필요하면 각 액추에이터에 직접 정지명령(구동부 /cmd_vel 0)을 내립니다.)
 
  [상태·에러 모니터링 종합]
    각 서브시스템이 상태/에러를 ROS 토픽으로 발행하며, 이를 합쳐 알람·에러 피드백을 제공한다:
@@ -303,7 +311,7 @@ AP(무선) 네트워크:
      - 리프트  : /lift/status (String)  — status=OK 또는 알람비트(OVER_LOAD/STALL 등), NO_DATA
      - 배터리  : /bms/state.power_supply_health, /bms/state.present
      - Safety PLC : /safety/input/*, /safety/output/*, /safety/state_all, /safety/connected
-     - 긴급정지 : /estop (구동부·리프트 공통)
+     - 긴급정지 : /safety/estop (하드 비상정지 통합상태, §3.7)
 
  3.7 [Safety PLC I/O]  (safety_io_node, PILZ PNOZmulti 2)
  --------------------------------------------------------------------------
@@ -313,8 +321,8 @@ AP(무선) 네트워크:
  [입력 상태]
  방향  토픽                                           PLC I/O  내용
  ----  --------------------------------------------   -------  ----------------------
- 출력  /safety/input/safety_emergency_1b             I0       EMERGENCY 1b
- 출력  /safety/input/safety_emergency_2b             I1       EMERGENCY 2b
+ 출력  /safety/input/safety_emergency_1b             I1       EMERGENCY 1b
+ 출력  /safety/input/safety_emergency_2b             I2       EMERGENCY 2b
  출력  /safety/input/safety_auto_mode                I4       AUTO MODE
  출력  /safety/input/safety_manual_mode              I5       MANUAL MODE
  출력  /safety/input/safety_reset_switch             I6       RESET SWITCH
@@ -338,6 +346,28 @@ AP(무선) 네트워크:
  ----  ---------------------   ---------------   --------------------------------------
  출력  /safety/connected       std_msgs/Bool     Safety PLC 연결 상태(true=정상)
  출력  /safety/state_all       std_msgs/String   위 개별 I/O 상태를 한 줄로 표시(편의용)
+ 출력  /safety/estop           std_msgs/Bool     하드 비상정지 통합상태 (true=비상 활성)
+
+ [하드 비상정지 통합 토픽 — /safety/estop]
+   여러 물리 안전접점 + traction 전원 상태를 묶어 하나의 Bool 로 발행합니다(고객사 요청).
+   true=비상 활성.
+     - 묶음      : EMERGENCY 1b + 2b + BUMPER FRONT + REAR (입력, config 로 변경 가능)
+     - 판정      : 아래 중 하나라도 성립하면 true
+                     (a) 묶인 입력 접점 중 하나라도 triggered (OR), 또는
+                     (b) traction 전원 출력(traction_motor_power_on)이 off
+     - (b)의 의미: 범퍼는 모멘터리라 떼면 입력은 0으로 돌아가지만, PLC 가 STO 를 래치해
+                   traction 전원을 계속 off 로 유지한다. 따라서 전원이 off 인 동안은
+                   estop=true 를 유지하고, 리셋으로 전원이 복구(on)되어야 false 가 된다.
+     - fail-safe : 노드 시작 직후 및 Safety PLC 통신두절 시 true(비상)로 발행
+     - 극성(실장비 확정 2026-07-27):
+                   EMERGENCY 1b/2b = b접점(NC), idle=1·눌림=0 → active_low: true
+                   BUMPER front/rear = a접점(NO, 모멘터리), idle=0·눌림=1 → active_low: false
+                   traction_motor_power_on : idle(정상)=1, STO/비상 시 0
+   ⚠️ 이는 상태 피드백(read-only)이며 안전인증 정지장치가 아닙니다. 물리 차단은 Safety
+      PLC 회로가 담당하고, 이 토픽은 상위에서 하드 비상정지 발생을 감지하는 용도입니다.
+   * config: hardware_estop_sources([{name, active_low}], []이면 기능 off),
+             hardware_estop_power_output(전원 출력명, 기본 traction_motor_power_on,
+             ""이면 (b)조건 비활성). 발행 토픽명 = <topic_prefix>/estop.
 
 --------------------------------------------------------------------------------
  4. 통신 및 기능 검증 가이드라인 (테스트 시나리오)
@@ -390,7 +420,7 @@ AP(무선) 네트워크:
      rostopic echo /motor/alarm    # 에러 발생 시 메시지 출력
      rostopic echo /motor/status   # 전압/전류/statusword/error_code
 
- 4.5 조명 LED 검증  (crevis_io)
+ 4.5 조명 LED 및 충전 릴레이 검증  (crevis_io)
      [사전] 로봇 PC 에서:  roslaunch crevis_io_driver crevis_io.launch
      [연결 확인]:
        rostopic echo /crevis/connected      # true 여야 정상 (false=Crevis 미연결/IP 확인)
@@ -436,16 +466,10 @@ AP(무선) 네트워크:
      * 홈잉 완료판정 = 하강 중 위치정지 감지(home_stall_counts/home_stall_sec 로 튜닝).
      * 카운트↔실거리 환산은 현장 실측으로 별도 확정 필요.
 
- 4.7 긴급정지(E-stop) 검증
-     [사전] 구동부(bringup) / 리프트(lift) 실행 중.
-     [정지]  주행/리프트 동작 중 새 터미널에서:
-       rostopic pub -1 /estop std_msgs/Bool "data: true"
-       기대: 구동모터·리프트 즉시 정지. 이후 /cmd_vel·/motor/cmd·/lift/command 를 보내도
-             움직이지 않음(무시). 로그에 "E-STOP engaged" 출력.
-     [해제]  rostopic pub -1 /estop std_msgs/Bool "data: false"
-       기대: 로그에 "E-STOP released". 이후 정상 명령 다시 수용.
-     * /estop 은 sticky(자동 해제 없음) — 반드시 false 를 명시 발행해야 재구동 가능.
-     * 물리 비상버튼은 Safety PLC 하드 E-stop 으로 별도 구성(§3.6·§6). /estop 은 소프트 정지.
+ 4.7 긴급정지 검증
+     긴급정지는 하드웨어 Safety PLC 가 담당하며(§3.6), ROS 는 그 상태를 감지만 합니다.
+     비상버튼/범퍼를 눌러 물리 정지가 걸리는지 확인하고, ROS 통합상태(/safety/estop)는
+     아래 §4.8 에서 확인합니다. (소프트웨어 /estop 토픽은 제거됨 — v0.11)
 
  4.8 Safety PLC I/O 검증  (safety_io_driver)
      [상태 모니터링]
@@ -455,7 +479,10 @@ AP(무선) 네트워크:
        rostopic echo /safety/input/safety_emergency_1b
        rostopic echo /safety/input/safety_bumper_front
        rostopic echo /safety/output/brake_release
-       기대: /safety/connected=true, PLC 표시창/실제 스위치와 개별 Bool 상태 일치
+       rostopic echo /safety/estop
+       기대: /safety/connected=true, PLC 표시창/실제 스위치와 개별 Bool 상태 일치.
+             비상버튼/범퍼를 누르면 /safety/estop=true, 해제하면 false.
+             (만약 반대로 나오면 config 의 해당 접점 active_low 를 뒤집어 극성 보정)
 
 --------------------------------------------------------------------------------
  5. 파라미터 (참고)
@@ -535,9 +562,9 @@ AP(무선) 네트워크:
  [참고] 리프트 — 구현 완료(lift_driver). 위치는 증분(엔코더)이라 전원 재부팅 후 엔코더 휘발.
         포지션 제어로 사용할 시 호밍(원점 재설정) 구현 필요.
 
- [협의필요] 긴급정지 — ROS /estop(소프트웨어)은 구현 완료(§3.6). 단 안전인증 정지가 아니므로
-        물리 비상버튼/안전회로는 Safety PLC(192.168.100.103) 하드 E-stop 으로 구성해야 한다.
-        "하드 E-stop 발생 시 ROS 측 통지 방식(PLC→ROS 신호)"과 "ROS /estop 이 커버할 범위"를
-        고객사와 확정 필요. (하드 E-stop 배선/신호 확정 시 §3.3 traction_enable 인터록과 연동 가능)
+ [확정] 긴급정지 — 하드웨어 Safety PLC(192.168.100.103)가 담당한다(§3.6). 소프트웨어 /estop
+        토픽은 제거되었고(v0.11), ROS 는 하드 비상정지 상태를 /safety/estop 통합 토픽으로
+        감지만 한다. 개별 접점 비트/극성(눌림=0/1)은 실장비 확정 필요(§3.7).
+        (하드 E-stop 배선/신호 확정 시 §3.3 traction_enable 인터록과 연동 가능)
 
 ================================================================================

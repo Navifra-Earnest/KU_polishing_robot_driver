@@ -57,7 +57,6 @@ LiftDriver::LiftDriver(ros::NodeHandle& nh, ros::NodeHandle& pnh)
 
     cmd_sub_ = nh_.subscribe("/lift/command", 10, &LiftDriver::commandCallback, this);
     vel_cmd_sub_ = nh_.subscribe("/lift/velocity_cmd", 10, &LiftDriver::velocityCmdCallback, this);
-    estop_sub_ = nh_.subscribe("/estop", 10, &LiftDriver::estopCallback, this);  // 모터와 공유
     position_pub_ = nh_.advertise<std_msgs::Int32>("/lift/position", 10);
     status_pub_ = nh_.advertise<std_msgs::String>("/lift/status", 10);
 
@@ -161,26 +160,8 @@ void LiftDriver::requestMonitor()
     sendFrame(PID_REQ_PID_DATA, {PID_MONITOR});
 }
 
-void LiftDriver::estopCallback(const std_msgs::Bool::ConstPtr& msg)
-{
-    const bool prev = estop_engaged_.exchange(msg->data);
-    if (msg->data) {
-        mode_ = Mode::MANUAL;   // 진행 중 위치이동/홈잉 취소
-        pending_home_ = false;
-        sendVelocity(0);   // 즉시 정지
-        if (!prev) ROS_WARN("lift_driver: E-STOP engaged (/estop=true) -> lift stopped, commands ignored.");
-    } else if (prev) {
-        ROS_INFO("lift_driver: E-STOP released (/estop=false).");
-    }
-}
-
 void LiftDriver::commandCallback(const std_msgs::String::ConstPtr& msg)
 {
-    if (estop_engaged_.load()) {
-        sendVelocity(0);
-        ROS_WARN_THROTTLE(2.0, "lift_driver: E-STOP engaged, ignoring '%s'.", msg->data.c_str());
-        return;
-    }
     const std::string& c = msg->data;
     if (c == "up") {
         mode_ = Mode::MANUAL;   // 수동속도 명령은 위치이동/홈잉을 취소
@@ -198,20 +179,12 @@ void LiftDriver::commandCallback(const std_msgs::String::ConstPtr& msg)
 
 void LiftDriver::velocityCmdCallback(const std_msgs::Int16::ConstPtr& msg)
 {
-    if (estop_engaged_.load()) {
-        sendVelocity(0);
-        return;
-    }
     mode_ = Mode::MANUAL;   // 수동속도 명령은 위치이동/홈잉을 취소
     sendVelocity(msg->data);
 }
 
 void LiftDriver::positionCmdCallback(const std_msgs::Int32::ConstPtr& msg)
 {
-    if (estop_engaged_.load()) {
-        ROS_WARN_THROTTLE(2.0, "lift_driver: E-STOP engaged, ignoring position_cmd.");
-        return;
-    }
     if (!homed_) {
         ROS_WARN_THROTTLE(2.0, "lift_driver: not homed - target is relative to power-on origin. "
                                "Publish /lift/home (true) once per power cycle for repeatable absolute positioning.");
@@ -224,10 +197,6 @@ void LiftDriver::positionCmdCallback(const std_msgs::Int32::ConstPtr& msg)
 
 void LiftDriver::incPositionCmdCallback(const std_msgs::Int32::ConstPtr& msg)
 {
-    if (estop_engaged_.load()) {
-        ROS_WARN_THROTTLE(2.0, "lift_driver: E-STOP engaged, ignoring inc_position_cmd.");
-        return;
-    }
     int32_t cur;
     { std::lock_guard<std::mutex> lock(data_mutex_); cur = position_; }
     target_pos_ = cur + msg->data;   // 완료판정용 예상 목표
@@ -247,10 +216,6 @@ void LiftDriver::homeCallback(const std_msgs::Bool::ConstPtr& msg)
         }
         return;
     }
-    if (estop_engaged_.load()) {
-        ROS_WARN("lift_driver: E-STOP engaged, cannot start homing.");
-        return;
-    }
     const int mag = home_speed_rpm_ > 0 ? home_speed_rpm_ : std::abs(up_speed_rpm_);
     if (mag == 0) {
         ROS_ERROR("lift_driver: homing needs a speed - set home_speed_rpm or up_speed_rpm.");
@@ -267,7 +232,6 @@ void LiftDriver::homeCallback(const std_msgs::Bool::ConstPtr& msg)
 
 void LiftDriver::updateMotion(int32_t pos, bool fresh)
 {
-    if (estop_engaged_.load()) return;   // estopCallback 이 이미 정지/MANUAL 처리
     const ros::Time now = ros::Time::now();
 
     if (mode_ == Mode::HOMING) {
@@ -405,7 +369,7 @@ void LiftDriver::pollTimer(const ros::TimerEvent&)
     }
 
     // 자동 홈잉(옵션): 통신이 살아난 뒤 1회 시작
-    if (pending_home_ && fresh && !estop_engaged_.load()) {
+    if (pending_home_ && fresh) {
         std_msgs::BoolPtr hm(new std_msgs::Bool());
         hm->data = true;
         homeCallback(hm);   // pending_home_ 은 여기서 해제됨

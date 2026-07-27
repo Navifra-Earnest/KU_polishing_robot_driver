@@ -52,7 +52,7 @@ Polishing/
         │   │   ├── can_interface.cpp        # SocketCAN RAW 래퍼 (ROS 비의존)
         │   │   ├── serial_interface.cpp     # RS485 시리얼 래퍼 (ROS 비의존, 리프트용)
         │   │   ├── motor_controller.cpp     # Kinco CiA402 상태머신/PDO/속도제어 (ROS 비의존)
-        │   │   ├── motor_driver_node.cpp    # 저수준 노드: /motor/cmd·/motor/velocity·/motor/status·/estop …
+        │   │   ├── motor_driver_node.cpp    # 저수준 노드: /motor/cmd·/motor/velocity·/motor/status …
         │   │   ├── base_controller_node.cpp # 상위 표준: /cmd_vel↔/odom (차동구동, TF)
         │   │   ├── bms_driver_node.cpp      # Daly BMS: /bms/state (배터리 모니터링, CAN 250K)
         │   │   └── lift_driver_node.cpp     # 리프트: /lift/command·/lift/position (MDROBOT RS485)
@@ -95,7 +95,6 @@ Polishing/
 | 방향 | 토픽 | 타입 | 설명 |
 |------|------|------|------|
 | 입력 | `/motor/cmd` | `std_msgs/Float32MultiArray` | `data=[motor1_rpm, motor2_rpm]` 목표 속도 |
-| 입력 | `/estop` | `std_msgs/Bool` | **긴급정지**. `true`=즉시 0속도 + servo OFF, `false`=해제. 리프트 노드도 동일 토픽 구독 |
 | 입력 | `/traction_enable` | `std_msgs/Bool` | 구동 인가 지령 (인터록) — **현재 구독 주석 처리(미구성)** |
 | 입력 | `/motor_brakeon_feedback` | `std_msgs/Bool` | 브레이크 체결 피드백 (`true`=체결) — **현재 구독 주석 처리(미구성)** |
 | 출력 | `/motor/velocity` | `std_msgs/Float32MultiArray` | `data=[motor1_rpm, motor2_rpm]` 실측 속도 |
@@ -185,11 +184,6 @@ rosrun tf tf_echo odom base_link   # TF 확인
 
 ### 배터리 모니터링 (Daly BMS)
 ```bash
-# ⚠️ Daly BMS 는 CAN 250K — 모터(500K)와 다른 버스여야 한다. BMS CAN 을 250K 로 up:
-sudo ip link set can1 down
-sudo ip link set can1 type can bitrate 250000
-sudo ip link set can1 up
-
 roslaunch motor_driver bms.launch          # config/bms_driver.yaml (can_device 기본 can1)
 rostopic echo /bms/state                   # sensor_msgs/BatteryState
 #   percentage(0~1)=잔량, power_supply_status(1충전/2방전/4완충), voltage/current/temperature ...

@@ -41,8 +41,6 @@ MotorDriverNode::MotorDriverNode(ros::NodeHandle& nh, ros::NodeHandle& pnh)
 
     // --- 통신 설정 ---
     cmd_sub_ = nh_.subscribe("/motor/cmd", 10, &MotorDriverNode::cmdCallback, this);
-    // 긴급정지: /estop=true 면 즉시 0속도 + servo OFF(인터록 경유). false 로 명시적 해제.
-    estop_sub_ = nh_.subscribe("/estop", 10, &MotorDriverNode::estopCallback, this);
     // TODO(traction): /traction_enable 은 아직 구성 전이라 구독 비활성화.
     //                 고객사 PLC 인가 신호 확정 후 주석 해제 (require_traction_enable 도 함께 true 로).
     // traction_enable_sub_ = nh_.subscribe("/traction_enable", 10, &MotorDriverNode::tractionEnableCallback, this);
@@ -87,10 +85,6 @@ void MotorDriverNode::cmdCallback(const std_msgs::Float32MultiArray::ConstPtr& m
     }
     last_cmd_time_ = ros::Time::now();
 
-    // 안전: 긴급정지 중이면 지령 무시 (0 유지)
-    if (estop_engaged_.load()) {
-        return;
-    }
     // 안전: enable 상태가 아니면 속도 지령을 적용하지 않고 0 유지
     if (!motors_enabled_.load()) {
         return;
@@ -114,31 +108,8 @@ void MotorDriverNode::cmdCallback(const std_msgs::Float32MultiArray::ConstPtr& m
 //     updateEnableState();
 // }
 
-void MotorDriverNode::estopCallback(const std_msgs::Bool::ConstPtr& msg)
-{
-    const bool prev = estop_engaged_.exchange(msg->data);
-
-    // 즉시 반영: 긴급정지 시 sync 스레드가 다음 주기에 0 을 내보내도록 목표속도부터 0 으로.
-    // (servo OFF 로의 전이는 updateEnableState 가 백그라운드에서 수행 — 콜백 블로킹 방지)
-    if (msg->data) {
-        for (const auto& id : drive_motor_ids_) {
-            controller_->set_target_velocity(id, 0.0f);
-        }
-        if (!prev) ROS_WARN("E-STOP engaged (/estop=true): motors -> 0 speed, servo OFF.");
-    } else if (prev) {
-        ROS_INFO("E-STOP released (/estop=false).");
-    }
-
-    updateEnableState();
-}
-
 bool MotorDriverNode::computeWantEnabled() const
 {
-    // 긴급정지 중이면 무조건 disable
-    if (estop_engaged_.load()) {
-        return false;
-    }
-
     // traction 인가 조건
     bool traction_ok;
     if (require_traction_enable_) {
@@ -213,15 +184,8 @@ void MotorDriverNode::updateEnableState()
 
 void MotorDriverNode::controlLoop(const ros::TimerEvent&)
 {
-    // 긴급정지 → 매 주기 0속도 강제 (servo OFF 전이 완료 전에도 즉시 정지 보장)
-    if (estop_engaged_.load()) {
-        for (const auto& id : drive_motor_ids_) {
-            controller_->set_target_velocity(id, 0.0f);
-        }
-        ROS_WARN_THROTTLE(2.0, "E-STOP engaged: drive motors held at zero.");
-    }
     // 명령 타임아웃 → 안전 정지
-    else if (motors_enabled_.load() &&
+    if (motors_enabled_.load() &&
         (ros::Time::now() - last_cmd_time_) > ros::Duration(cmd_timeout_sec_)) {
         ROS_WARN_THROTTLE(5.0, "Command timeout. Holding drive motors at zero.");
         for (const auto& id : drive_motor_ids_) {
@@ -286,7 +250,7 @@ void MotorDriverNode::controlLoop(const ros::TimerEvent&)
     //   막지 않도록 별도 스레드에서 수행하고, fault_reset_interval_sec_ 로 재시도를
     //   rate-limit 한다. (그러지 않으면 지속 fault 시 매 주기 블로킹되어 모니터링 토픽이 멎음)
     const bool want_reset =
-        has_drive_fault && !estop_engaged_.load() && computeWantEnabled() &&
+        has_drive_fault && computeWantEnabled() &&
         !transition_in_progress_.load() &&
         (ros::Time::now() - last_reset_attempt_).toSec() > fault_reset_interval_sec_;
     if (want_reset && !transition_in_progress_.exchange(true)) {

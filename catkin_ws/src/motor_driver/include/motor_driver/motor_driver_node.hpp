@@ -37,7 +37,6 @@ public:
 private:
     // 콜백
     void cmdCallback(const std_msgs::Float32MultiArray::ConstPtr& msg);
-    void estopCallback(const std_msgs::Bool::ConstPtr& msg);  // /estop (소프트웨어 긴급정지)
     // void tractionEnableCallback(const std_msgs::Bool::ConstPtr& msg);  // /traction_enable 미구성 (주석)
     // void brakeFeedbackCallback(const std_msgs::Bool::ConstPtr& msg);  // /motor_brakeon_feedback 미구성 (주석)
     void controlLoop(const ros::TimerEvent&);
@@ -64,7 +63,6 @@ private:
 
     // 통신
     ros::Subscriber cmd_sub_;
-    ros::Subscriber estop_sub_;      // /estop  긴급정지 지령 (true=정지, false=해제)
     // ros::Subscriber traction_enable_sub_;  // /traction_enable 미구성 (주석)
     // ros::Subscriber brake_fb_sub_;  // /motor_brakeon_feedback 미구성 (주석)
     ros::Publisher velocity_pub_;   // /motor/velocity  실측 속도 [m1_rpm, m2_rpm]
@@ -78,7 +76,6 @@ private:
     std::atomic<bool> motors_enabled_{false};
     std::atomic<bool> transition_in_progress_{false};
     std::atomic<bool> is_error_{false};
-    std::atomic<bool> estop_engaged_{false};  // /estop 긴급정지 상태
 
     // traction enable 지령 (-1: 미수신, 0: disable, 1: enable)
     std::atomic<int> last_traction_enable_cmd_{-1};

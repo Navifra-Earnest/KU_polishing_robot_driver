@@ -40,7 +40,7 @@
 //     출력  /lift/position       std_msgs/Int32   현재 위치(홀 카운트, 증분)
 //     출력  /lift/status         std_msgs/String  연결/모드/위치/상태비트
 //     출력  /lift/homed          std_msgs/Bool    원점 확립 여부
-//   임의 명령(velocity/up/down/stop) 또는 /estop 은 진행 중인 위치이동/홈잉을 취소하고 수동모드로 전환.
+//   임의 명령(velocity/up/down/stop)은 진행 중인 위치이동/홈잉을 취소하고 수동모드로 전환.
 // ============================================================================
 class LiftDriver {
 public:
@@ -55,7 +55,6 @@ private:
     void positionCmdCallback(const std_msgs::Int32::ConstPtr& msg);      // 절대 위치이동
     void incPositionCmdCallback(const std_msgs::Int32::ConstPtr& msg);   // 상대 위치이동
     void homeCallback(const std_msgs::Bool::ConstPtr& msg);             // 홈잉 시작/중단
-    void estopCallback(const std_msgs::Bool::ConstPtr& msg);  // /estop 긴급정지 (모터와 공유)
     void pollTimer(const ros::TimerEvent&);
     void updateMotion(int32_t pos, bool fresh);  // 홈잉/위치이동 상태머신 (pollTimer 에서 호출)
 
@@ -79,7 +78,6 @@ private:
     ros::Subscriber position_cmd_sub_;
     ros::Subscriber inc_position_cmd_sub_;
     ros::Subscriber home_sub_;
-    ros::Subscriber estop_sub_;
     ros::Publisher position_pub_;
     ros::Publisher status_pub_;
     ros::Publisher homed_pub_;
@@ -116,7 +114,6 @@ private:
     uint8_t status_byte_{0};
     int16_t rpm_{0};
     ros::Time last_rx_;
-    std::atomic<bool> estop_engaged_{false};  // /estop=true 면 상승/하강 무시하고 정지
 
     // 위치제어/홈잉 상태 (단일 스레드 spin, 콜백·타이머 동일 스레드라 락 불필요)
     Mode mode_{Mode::MANUAL};

@@ -375,6 +375,12 @@ public:
     private_nh.param("input_count", input_count_, 17);
     private_nh.param("output_count", output_count_, 4);
     private_nh.param<std::string>("topic_prefix", topic_prefix_, "/safety");
+    // Output signal whose "false" (power off) means the robot is in STO. Folded
+    // into the unified E-stop so a latched stop survives a momentary input clearing
+    // (e.g. a bumper releases its input, but the PLC keeps traction power off until
+    // a reset). Empty string disables this condition (inputs-only aggregation).
+    private_nh.param<std::string>("hardware_estop_power_output", hardware_estop_power_output_,
+                                  "traction_motor_power_on");
 
     if (unit_id < 0 || unit_id > 255) throw std::runtime_error("unit_id must be in [0, 255]");
     unit_id_ = static_cast<uint8_t>(unit_id);
@@ -400,6 +406,21 @@ public:
         throw std::runtime_error("duplicate output signal name '" + config_io_output.name + "'");
     }
 
+    loadEstopSources(private_nh);
+
+    if (!hardware_estop_power_output_.empty())
+    {
+      const bool known = std::any_of(outputs_.begin(), outputs_.end(),
+        [this](const Signal& output) { return output.name == hardware_estop_power_output_; });
+      if (!known)
+      {
+        ROS_WARN("[safety_io] hardware_estop_power_output '%s' is not an output signal; "
+                 "traction-power condition disabled (inputs-only E-stop).",
+                 hardware_estop_power_output_.c_str());
+        hardware_estop_power_output_.clear();
+      }
+    }
+
     device_lock_.reset(new DeviceLock(ip_, port_));
     client_.reset(new ModbusTcpClient(ip_, port_, unit_id_, timeout_));
 
@@ -416,12 +437,21 @@ public:
       output_publishers_[signal.name] =
         nh.advertise<std_msgs::Bool>(topic_prefix_ + "/output/" + signal.name, 1, true);
 
+    hardware_estop_enabled_ = !estop_sources_.empty();
+    if (hardware_estop_enabled_)
+      hardware_estop_publisher_ = nh.advertise<std_msgs::Bool>(topic_prefix_ + "/estop", 1, true);
+
     publishConnected(false);
+    // Fail-safe default before the first successful poll: assume emergency active.
+    publishHardwareEstop(true);
 
     ROS_INFO("[safety_io] %s:%d unit=%u, input DI=%d..%d, output DI=%d..%d",
              ip_.c_str(), port_, static_cast<unsigned int>(unit_id_),
              input_discrete_base_, input_discrete_base_ + input_count_ - 1,
              output_discrete_base_, output_discrete_base_ + output_count_ - 1);
+    if (hardware_estop_enabled_)
+      ROS_INFO("[safety_io] hardware_estop '%s' aggregates %zu source(s)",
+               (topic_prefix_ + "/estop").c_str(), estop_sources_.size());
 
     timer_ = nh.createTimer(ros::Duration(1.0 / publish_rate_), &SafetyIONode::poll, this);
   }
@@ -437,8 +467,8 @@ private:
   static std::vector<Signal> defaultInputs()
   {
     return {
-      {"safety_emergency_1b", 0},
-      {"safety_emergency_2b", 1},
+      {"safety_emergency_1b", 1},
+      {"safety_emergency_2b", 2},
       {"safety_auto_mode", 4},
       {"safety_manual_mode", 5},
       {"safety_reset_switch", 6},
@@ -510,6 +540,53 @@ private:
     if (destination.empty()) destination = defaults;
   }
 
+  // Register one aggregate-E-stop source. Only signals that exist among the
+  // configured inputs are accepted (the aggregate reuses their polled values).
+  void addEstopSource(const std::string& name, bool active_low)
+  {
+    const bool exists = std::any_of(inputs_.begin(), inputs_.end(),
+      [&name](const Signal& signal) { return signal.name == name; });
+    if (!exists)
+    {
+      ROS_WARN("[safety_io] hardware_estop source '%s' is not an input signal; ignoring",
+               name.c_str());
+      return;
+    }
+    estop_sources_[name] = active_low;
+  }
+
+  // Load ~hardware_estop_sources (list of {name, active_low}). active_low=true
+  // means the contact is normally-closed (b-contact): logic LOW = triggered.
+  // If the parameter is absent, fall back to the dual E-stop channels + bumpers.
+  void loadEstopSources(ros::NodeHandle& private_nh)
+  {
+    XmlRpc::XmlRpcValue values;
+    if (private_nh.getParam("hardware_estop_sources", values) &&
+        values.getType() == XmlRpc::XmlRpcValue::TypeArray)
+    {
+      for (int index = 0; index < values.size(); ++index)
+      {
+        if (values[index].getType() != XmlRpc::XmlRpcValue::TypeStruct ||
+            !values[index].hasMember("name"))
+        {
+          ROS_WARN("[safety_io] ignoring malformed ~hardware_estop_sources[%d]", index);
+          continue;
+        }
+        const std::string name = static_cast<std::string>(values[index]["name"]);
+        bool active_low = true;
+        if (values[index].hasMember("active_low"))
+          active_low = static_cast<bool>(values[index]["active_low"]);
+        addEstopSource(name, active_low);
+      }
+      return;  // Explicit config wins, even when it is an empty list (feature off).
+    }
+
+    addEstopSource("safety_emergency_1b", true);
+    addEstopSource("safety_emergency_2b", true);
+    addEstopSource("safety_bumper_front", true);
+    addEstopSource("safety_bumper_rear", true);
+  }
+
   void poll(const ros::TimerEvent&)
   {
     std::vector<uint8_t> input_values;
@@ -532,8 +609,14 @@ private:
     const bool connected = input_ok && output_ok;
     publishConnected(connected);
     reportConnectionState(connected, error);
-    if (!connected) return;
+    if (!connected)
+    {
+      // Fail-safe: communication loss is treated as emergency active.
+      publishHardwareEstop(true);
+      return;
+    }
 
+    bool hardware_estop_active = false;
     std::ostringstream state;
     state << "inputs";
     for (const Signal& signal : inputs_)
@@ -543,7 +626,19 @@ private:
       message.data = value;
       input_publishers_[signal.name].publish(message);
       state << ' ' << signal.name << '=' << (value ? 1 : 0);
+
+      // Aggregate from the already-resolved value so the unified topic always
+      // matches the corresponding /safety/input/* topic.
+      const auto source = estop_sources_.find(signal.name);
+      if (source != estop_sources_.end())
+      {
+        const bool active_low = source->second;
+        const bool triggered = active_low ? !value : value;
+        hardware_estop_active = hardware_estop_active || triggered;
+      }
     }
+    bool power_output_found = false;
+    bool power_output_on = false;
     state << "; outputs";
     for (const Signal& signal : outputs_)
     {
@@ -552,6 +647,15 @@ private:
       message.data = value;
       output_publishers_[signal.name].publish(message);
       state << ' ' << signal.name << '=' << (value ? 1 : 0);
+
+      // Capture the traction-power output so the unified E-stop can reflect the
+      // latched STO state (a momentary bumper clears its input on release, but
+      // the PLC keeps traction power off until a reset).
+      if (!hardware_estop_power_output_.empty() && signal.name == hardware_estop_power_output_)
+      {
+        power_output_found = true;
+        power_output_on = value;
+      }
     }
     for (const Signal& signal : config_io_outputs_)
     {
@@ -560,6 +664,16 @@ private:
       message.data = value;
       output_publishers_[signal.name].publish(message);
       state << ' ' << signal.name << '=' << (value ? 1 : 0);
+    }
+    // Traction power OFF means the robot is in STO (stopped) — force emergency
+    // active even if all momentary inputs have cleared. Only forces true; never
+    // clears an input trigger.
+    if (power_output_found && !power_output_on)
+      hardware_estop_active = true;
+    if (hardware_estop_enabled_)
+    {
+      publishHardwareEstop(hardware_estop_active);
+      state << "; hardware_estop=" << (hardware_estop_active ? 1 : 0);
     }
     std_msgs::String state_message;
     state_message.data = state.str();
@@ -571,6 +685,14 @@ private:
     std_msgs::Bool message;
     message.data = connected;
     connected_publisher_.publish(message);
+  }
+
+  void publishHardwareEstop(bool active)
+  {
+    if (!hardware_estop_enabled_) return;
+    std_msgs::Bool message;
+    message.data = active;
+    hardware_estop_publisher_.publish(message);
   }
 
   void reportConnectionState(bool connected, const std::string& error)
@@ -602,10 +724,13 @@ private:
   int input_count_;
   int output_count_;
   std::string topic_prefix_;
+  std::string hardware_estop_power_output_;  // output that must be ON (true) or E-stop is forced
 
   std::vector<Signal> inputs_;
   std::vector<Signal> outputs_;
   std::vector<Signal> config_io_outputs_;
+  std::map<std::string, bool> estop_sources_;  // input signal name -> active_low
+  bool hardware_estop_enabled_ = false;
   std::unique_ptr<DeviceLock> device_lock_;
   std::unique_ptr<ModbusTcpClient> client_;
   std::mutex client_mutex_;
@@ -614,6 +739,7 @@ private:
   std::map<std::string, ros::Publisher> output_publishers_;
   ros::Publisher connected_publisher_;
   ros::Publisher state_publisher_;
+  ros::Publisher hardware_estop_publisher_;
   ros::Timer timer_;
 
   bool connection_state_known_ = false;
