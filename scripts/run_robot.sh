@@ -58,7 +58,9 @@ USE_SAFETY="${USE_SAFETY:-true}"  # Safety PLC: 안전 I/O·충전(/safety/*)   
 echo "[run_robot] drive=$USE_DRIVE bms=$USE_BMS lift=$USE_LIFT crevis=$USE_CREVIS safety=$USE_SAFETY"
 
 # 켜둔 서브시스템만 단일 roscore 로 실행 (robot.launch 통합).
-exec roslaunch motor_driver robot.launch \
+# stdbuf -oL -eL: systemd(비-TTY) 아래서 노드 stdout/stderr 가 블록 버퍼링되어 로그가
+#   실시간으로 journal 에 안 뜨는 문제 방지 → 라인 버퍼링 강제(자식 노드에 LD_PRELOAD 전파).
+exec stdbuf -oL -eL roslaunch motor_driver robot.launch \
     use_drive:=$USE_DRIVE \
     use_bms:=$USE_BMS \
     use_lift:=$USE_LIFT \

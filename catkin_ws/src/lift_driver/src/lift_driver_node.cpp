@@ -166,12 +166,15 @@ void LiftDriver::commandCallback(const std_msgs::String::ConstPtr& msg)
     if (c == "up") {
         mode_ = Mode::MANUAL;   // 수동속도 명령은 위치이동/홈잉을 취소
         sendVelocity(manualUpSpeed());       // 리미트에서 드라이브가 자동 정지 (homed면 2배)
+        ROS_INFO("lift_driver: command=up (%d rpm)", manualUpSpeed());
     } else if (c == "down") {
         mode_ = Mode::MANUAL;
         sendVelocity(static_cast<int16_t>(-manualUpSpeed()));
+        ROS_INFO("lift_driver: command=down (%d rpm)", -manualUpSpeed());
     } else if (c == "stop") {
         mode_ = Mode::MANUAL;
         sendVelocity(0);
+        ROS_INFO("lift_driver: command=stop");
     } else {
         ROS_WARN_THROTTLE(2.0, "lift_driver: unknown command '%s' (use up/down/stop)", c.c_str());
     }
@@ -181,6 +184,7 @@ void LiftDriver::velocityCmdCallback(const std_msgs::Int16::ConstPtr& msg)
 {
     mode_ = Mode::MANUAL;   // 수동속도 명령은 위치이동/홈잉을 취소
     sendVelocity(msg->data);
+    ROS_INFO("lift_driver: velocity_cmd=%d rpm", msg->data);
 }
 
 void LiftDriver::positionCmdCallback(const std_msgs::Int32::ConstPtr& msg)
