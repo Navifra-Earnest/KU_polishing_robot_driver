@@ -211,7 +211,7 @@
     <table class="meta">
       <tr><th>작성</th><td>Navifra</td></tr>
       <tr><th>대상</th><td>건국대(KU) 연동 담당자</td></tr>
-      <tr><th>버전</th><td>v0.13</td></tr>
+      <tr><th>버전</th><td>v0.14</td></tr>
       <tr><th>날짜</th><td>2026-07-27</td></tr>
       <tr><th>ROS 환경</th><td>ROS1 Noetic, Ubuntu 20.04, x86_64</td></tr>
     </table>
@@ -239,6 +239,7 @@
   <tr><td>2026-07-27</td><td>v0.11</td><td>소프트웨어 긴급정지 /estop 제거 — 긴급정지는 하드웨어 Safety PLC 가 전담(§3.6). motor_driver·lift_driver 의 /estop 구독/정지로직 삭제. ROS 는 하드 비상정지 상태를 /safety/estop 으로 감지만 함.</td></tr>
   <tr><td>2026-07-27</td><td>v0.12</td><td>/safety/estop 판정 개선 — 입력 접점 OR 에 더해 traction 전원 출력(traction_motor_power_on) off 를 함께 반영. 범퍼(모멘터리)를 떼도 PLC STO 래치로 전원이 off 인 동안 estop=true 유지, 리셋 복구 시 false. 범퍼 극성 active_low=false 로 실장비 확정(§3.7).</td></tr>
   <tr><td>2026-07-27</td><td>v0.13</td><td>알려진 이슈(§6) 현행화 — 2번 구동모터 하드웨어 고장으로 수리 의뢰(입고 대기), 2모터 동시 enable/주행 실기 재검증은 수리 후 진행. 리프트 홈잉은 구현 완료로 정정하고, 자동 홈잉은 안전상 기본 off(auto_home_on_start, ~/navifra/param.yaml 로 현장 조정).</td></tr>
+  <tr><td>2026-07-27</td><td>v0.14</td><td>통합 자동실행(systemd) 절차 추가(§2.7) — 부팅 시 run_robot.sh 자동 기동, start/stop/restart·로그 명령. §0 요약 패키지명에 bms_driver·lift_driver 보완.</td></tr>
   <tr><td colspan="3" class="small">(이후 기능 추가 시 이 문서를 계속 갱신)</td></tr>
 </table>
 </div>
@@ -250,7 +251,7 @@
 <h1>0. 요약 (한눈에)</h1>
 <ul>
   <li>ROS 버전 : ROS1 Noetic (Ubuntu 20.04, x86_64)</li>
-  <li>패키지명 : motor_driver, crevis_io_driver, safety_io_driver (및 bms_driver, lift_driver)</li>
+  <li>패키지명 : motor_driver, bms_driver, lift_driver, crevis_io_driver, safety_io_driver</li>
 </ul>
 <p>상위(고객사)에서 쓰는 표준 인터페이스:</p>
 <table class="wide">
@@ -358,6 +359,22 @@ roslaunch safety_io_driver safety_io.launch    # Safety PLC I/O</code></pre>
 <pre><code>roslaunch safety_io_driver safety_io.launch
   -&gt; /safety/input/*·/safety/output/*·/safety/state_all·/safety/connected 발행
   (PILZ PNOZ m ES ETH IP 기본값: 192.168.100.103, MODBUS TCP 502)</code></pre>
+
+<h2>2.7 통합 자동실행 (systemd 서비스) — 권장</h2>
+<p>로봇 부팅 시 전체 드라이버(run_robot.sh: 구동/BMS/리프트/조명/Safety)가 자동 기동되도록 systemd 서비스로 등록되어 있습니다. CAN 초기화(caninit.service) 완료 후 실행됩니다.</p>
+<p class="small"><b>기동 / 정지 / 재시작</b> (sudo 필요)</p>
+<pre><code>sudo systemctl start   navifra-robot     # 기동 (roscore + 전체 노드)
+sudo systemctl stop    navifra-robot     # 정지 (노드 깔끔히 종료)
+sudo systemctl restart navifra-robot     # 재시작 (param.yaml·config 수정 후 반영)</code></pre>
+<p class="small"><b>상태 / 로그</b> (sudo 불필요)</p>
+<pre><code>systemctl status navifra-robot           # 실행 상태 요약 (active/inactive, PID)
+journalctl -u navifra-robot -f           # 실시간 로그 (Ctrl-C 종료)
+journalctl -u navifra-robot -n 50        # 최근 50줄</code></pre>
+<p class="small"><b>부팅 자동실행 on/off</b> (sudo 필요)</p>
+<pre><code>sudo systemctl enable  navifra-robot     # 부팅 자동실행 (기본 설정됨)
+sudo systemctl disable navifra-robot     # 부팅 자동실행 해제
+systemctl is-enabled   navifra-robot     # 현재 자동실행 여부</code></pre>
+<div class="note">오프셋(<code>~/navifra/param.yaml</code>) 수정 후에는 restart 로 반영합니다. ⚠️ 서비스가 켜져 있으면 roscore·노드가 이미 떠 있으므로, 수동으로 roslaunch 를 다시 실행하기 전에 반드시 stop 하세요(노드 이름 충돌 방지).</div>
 </div>
 
 <!-- ============================================================ -->
