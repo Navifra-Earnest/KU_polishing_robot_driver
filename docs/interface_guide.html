@@ -241,8 +241,7 @@
   <tr><td>2026-07-27</td><td>v0.13</td><td>알려진 이슈(§6) 현행화 — 2번 구동모터 하드웨어 고장으로 수리 의뢰(입고 대기), 2모터 동시 enable/주행 실기 재검증은 수리 후 진행. 리프트 홈잉은 구현 완료로 정정하고, 자동 홈잉은 안전상 기본 off(auto_home_on_start, ~/navifra/param.yaml 로 현장 조정).</td></tr>
   <tr><td>2026-07-27</td><td>v0.14</td><td>통합 자동실행(systemd) 절차 추가(§2.7) — 부팅 시 run_robot.sh 자동 기동, start/stop/restart·로그 명령. §0 요약 패키지명에 bms_driver·lift_driver 보완.</td></tr>
   <tr><td>2026-07-28</td><td>v0.15</td><td>리프트 알람(에러) 리셋 추가(§3.5, §4.6) — 드라이브 알람비트(ALARM) 감지 시 즉시 정지 후 PID_ALARM_RESET 으로 해제. 자동 재시도(간격·횟수 제한) + 수동 토픽 /lift/reset(Bool). 해제되면 알람 직전 위치이동 자동 재개. 신규 출력 /lift/error(Bool)·/lift/alarm(String), /lift/status 에 알람·재개 정보 추가.</td></tr>
-  <tr><td>2026-07-28</td><td>v0.16</td><td>리프트 리미트 처리 개선(§3.5) — 하부 리미트스위치 상태를 드라이브에서 직접 읽어(/lift/status 의 di=) 홈잉 완료를 판정. 상부는 드라이브 입력이 없어 정지 감지 시 속도지령을 자동 해제 → 상부 도달 시 CTRL_FAIL 알람 없어짐. 홈잉 진단로그(시작위치·5초 진행·이동량) 및 home_timeout_sec 40→120s. 위치 카운터 오차(상단에서 하강 시작 시 오계수) 주의사항 명시.</td></tr>
-  <tr><td colspan="3" class="small">(이후 기능 추가 시 이 문서를 계속 갱신)</td></tr>
+  <tr><td>2026-07-28</td><td>v0.16</td><td>리프트 리미트 처리 개선(§3.5) — 하부 리미트스위치 상태를 드라이브에서 직접 읽어(/lift/status 의 di=) 홈잉 완료를 판정. 상부는 드라이브 입력이 없어 정지 감지 시 속도지령을 자동 해제 → 상부 도달 시 CTRL_FAIL 알람 없어짐. 홈잉 진단로그(시작위치·5초 진행·이동량) 및 home_timeout_sec 40→120s. 위치 카운터 오차(상단에서 하강 시작 시 오계수) 주의사항 명시.</td></tr>  <tr><td colspan="3" class="small">(이후 기능 추가 시 이 문서를 계속 갱신)</td></tr>
 </table>
 </div>
 
@@ -307,19 +306,21 @@ roslaunch safety_io_driver safety_io.launch    # Safety PLC I/O</code></pre>
 <p><code>/dev/ttyS0</code> (COM1) — 리프트 모터드라이버 (USB-RS485 테스트 시 <code>/dev/ttyUSB0</code>)</p>
 
 <h2>네트워크 IP 구성</h2>
+<p class="small">로봇 PC 는 LAN 포트 4개를 각각 다른 대역에 물려 사용합니다.</p>
 <table>
-  <tr><th style="width:40mm;">장비</th><th>IP</th></tr>
-  <tr><td>로봇 PC</td><td class="mono">192.168.100.100</td></tr>
-  <tr><td>Front LiDAR</td><td class="mono">192.168.100.101</td></tr>
+  <tr><th style="width:26mm;">로봇 PC 포트</th><th style="width:34mm;">로봇 PC IP</th><th style="width:44mm;">연결 장비</th><th>장비 IP</th></tr>
+  <tr><td rowspan="4">LAN 1<br><span class="small">(외부 LAN포트 IP 동일)</span></td><td rowspan="4" class="mono">192.168.100.100</td><td>Front LiDAR</td><td class="mono">192.168.100.101</td></tr>
   <tr><td>Rear LiDAR</td><td class="mono">192.168.100.102</td></tr>
   <tr><td>Safety PLC</td><td class="mono">192.168.100.103</td></tr>
   <tr><td>Crevis IO</td><td class="mono">192.168.100.104</td></tr>
+  <tr><td>LAN 2</td><td class="mono">192.168.200.100</td><td>매니퓰레이터 카메라</td><td class="mono">192.168.200.106</td></tr>
+  <tr><td>LAN 3</td><td class="mono">192.168.58.100</td><td>매니퓰레이터 로봇팔</td><td class="mono">192.168.58.2</td></tr>
+  <tr><td>LAN 4</td><td class="mono">192.168.1.100</td><td>AP(피닉스)</td><td class="mono">192.168.1.10</td></tr>
 </table>
-<p class="small">※ 이외에 LAN Hub에 연결되는 장비는 모두 192.168.100.xxx 대역으로 설정 바랍니다.</p>
-
-<h2>AP(무선) 네트워크</h2>
-<p>AP 연결 PC IP : <code>192.168.1.100</code> (수정 가능)</p>
-<p class="small">※ AP 설정 시 위 대역 참고 바랍니다.</p>
+<p class="small">※ 이외에 LAN Hub에 연결되는 장비는 모두 192.168.100.xxx 대역으로 설정 바랍니다.<br>
+※ AP(무선) 설정 시 LAN 4 대역(192.168.1.x)을 참고 바랍니다.<br>
+※ 이 드라이버가 직접 통신하는 장비는 LAN 1 대역의 Safety PLC(192.168.100.103)와 Crevis IO(192.168.100.104) 뿐입니다.
+매니퓰레이터 카메라·로봇팔(LAN 2/3)은 본 드라이버 범위 밖입니다.</p>
 
 <div class="note">
 상위 시스템(고객사)은 원칙적으로 "상위 표준 인터페이스"(/cmd_vel, /odom, /bms/state, /crevis/led/*, /crevis/charging, /lift/command·/lift/position, /safety/input/*, /safety/output/*)만 사용하면 됩니다. 저수준 토픽(/motor/*, /lift/velocity_cmd)은 디버그/직접제어용입니다.
