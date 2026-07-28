@@ -23,9 +23,37 @@ home_speed_rpm: 0        # 홈잉 하강 속도크기[rpm]. 0=|up_speed_rpm| 사
 home_stall_counts: 5     # 이 카운트 이하로 위치변화 없으면 '정지'로 간주
 home_stall_sec: 1.5      # 위 정지가 이 시간 이상 지속되면 홈(하부 리미트) 도달로 판정
 home_min_sec: 1.0        # 홈잉 시작 후 최소 이 시간 경과해야 완료 허용(스핀업 오검출 방지)
-home_timeout_sec: 40.0   # 이 시간 내 홈 못찾으면 중단(NOT homed)
+home_timeout_sec: 120.0  # 이 시간 내 홈 못찾으면 중단(NOT homed)
+                         # 실측(2026-07-28): 1000rpm 전행정 하강 = 28.2s. 구 40s 는 여유 1.4배로 빡빡했고
+                         # up_speed_rpm 을 낮추면 더 줄어들어 120s 로 상향(여유 확보용).
+                         # ⚠️ 타임아웃은 "느려서 못 내려간 경우"만 구제한다. 아예 안 움직이는 경우
+                         #    (통신두절/드라이브 알람/기구 구속)는 늘려도 실패 시점만 늦어진다.
+                         #    홈잉 중 5초 주기 진행로그(pos/moved/fresh-stale)로 어느 쪽인지 판별할 것.
 in_position_tol: 20      # |target-pos| 이 값 이하면 위치이동 완료로 간주
 auto_home_on_start: false # 부팅/런치 시 1회 자동 홈잉 여부(하부 리미트→원점0). 기본 false(안전).
                           # ⚠️ true면 런치 즉시 리프트가 자동 하강함. 현장에선 ~/navifra/param.yaml 로 조정.
 post_home_speed_scale: 2.0 # 홈잉 완료 후 수동 up/down + 위치제어 속도 배율(홈잉 자체는 저속 유지). 1.0=미적용
 # 스트로크(실측): 홈잉 원점 0 ~ 최대높이 7000 홀카운트. 절대위치는 이 범위 내로 지령.
+
+# ── 리미트스위치 기반 판정 (실기 확정 2026-07-28) ─────────────────────────
+# PID_MONITOR(196) D12 = PID_DI(48). 매뉴얼 §2.3: CTRL #6(DIR)=하강(CW-) 허용, #8(START_STOP)=상승 허용
+# 입력이며 기구 구속축은 여기에 리미트스위치(NC)를 문다.
+#  · 실측 확정: DIR 비트(0x04)=0 → 하부 리미트 도달. (바닥 DIR=0 / 중간 DIR=1 / 도달순간 1→0)
+#  · 상부 리미트는 이 드라이브 입력에 물려있지 않음 → 기구 끝단에 밀려 정지하고, 지령을 계속
+#    유지하면 드라이브가 CTRL_FAIL(속도제어 실패) 알람을 낸다. 그래서 상부는 '정지 감지'로만 안다.
+use_limit_switch_for_home: true  # 홈잉 완료를 DIR 비트로 판정(정확·즉시). false=구 방식(정지감지 추론)
+limit_di_descend_mask: 0x04      # 하강 허용/하부 리미트 DI 비트 (CTRL #6 DIR)
+auto_release_on_stop: true       # 리미트·구속으로 멈추면 속도 0 자동 전송 → CTRL_FAIL 예방
+release_grace_sec: 2.0           # 명령 후 이 시간은 정지판정 유예(스핀업)
+release_stop_sec: 1.0            # 이 시간 이상 위치변화 없으면 정지로 보고 지령 해제
+
+# ── 알람(에러) 리셋 (PID_ALARM_RESET 12) ──────────────────────────────────
+# 드라이브 상태바이트(PID_CTRL_STATUS) BIT0=ALARM 감지 → 즉시 정지(속도0+MANUAL) 후 리셋 시도.
+# 해제되면 알람 직전 위치이동/홈잉을 자동 재개한다. 수동 리셋은 /lift/reset (Bool true).
+auto_reset_on_alarm: true      # 알람 감지 시 자동으로 PID_ALARM_RESET 전송
+alarm_reset_interval_sec: 2.0  # 자동 리셋 재시도 간격[s]
+alarm_reset_max_attempts: 5    # 연속 자동 시도 한계(0=무제한). 초과하면 포기하고 /lift/reset 대기
+                               # (원인이 남아있을 때 알람↔리셋 무한루프를 막기 위한 상한)
+alarm_resume_max_cycles: 3     # 알람 해제 후 자동 재개 횟수 한계(0=무제한).
+                               # 재개→같은 원인으로 재알람→재개 사이클이 반복되면 이 횟수에서 중단.
+                               # 정상 완료 / 새 명령 / 수동 /lift/reset 시 카운터 0 으로 복귀.

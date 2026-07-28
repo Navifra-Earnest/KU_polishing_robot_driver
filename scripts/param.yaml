@@ -33,3 +33,12 @@ lift_driver:
   posi_ctrl_vel_rpm: 0       # 위치제어 최대속도[rpm] (0 = up_speed_rpm 사용)
   post_home_speed_scale: 2.0 # 홈잉 완료 후 수동 up/down·위치이동 속도 배율 (1.0=미적용)
   in_position_tol: 20        # |목표-현재| 이 값 이하면 위치이동 완료로 간주 [count]
+  use_limit_switch_for_home: true # 홈잉 완료를 하부 리미트 신호(DI DIR 비트)로 판정. false=구 정지감지 추론
+  auto_release_on_stop: true      # 리미트·구속으로 멈추면 속도 0 자동 전송(상부 CTRL_FAIL 예방)
+  home_timeout_sec: 120.0    # 홈잉 제한시간[s]. 실측 전행정 하강 = 28.2s @2000rpm
+  home_stall_counts: 5       # 이 카운트 이하로 위치변화 없으면 '정지'로 간주 → 하부 리미트 판정
+  home_stall_sec: 1.5        # 위 정지가 이 시간 이상 지속되면 홈 도달로 판정
+  auto_reset_on_alarm: true  # 리프트 알람 감지 시 자동 리셋(PID_ALARM_RESET) 시도. false=수동(/lift/reset)만
+  alarm_reset_interval_sec: 2.0 # 자동 리셋 재시도 간격[s]
+  alarm_reset_max_attempts: 5   # 연속 자동 시도 한계(0=무제한). 초과 시 포기 → /lift/reset 으로 재시도
+  alarm_resume_max_cycles: 3    # 알람 해제 후 자동 재개(이동/홈잉) 반복 한계(0=무제한)
