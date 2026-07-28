@@ -211,7 +211,7 @@
     <table class="meta">
       <tr><th>작성</th><td>Navifra</td></tr>
       <tr><th>대상</th><td>건국대(KU) 연동 담당자</td></tr>
-      <tr><th>버전</th><td>v0.14</td></tr>
+      <tr><th>버전</th><td>v0.16</td></tr>
       <tr><th>날짜</th><td>2026-07-27</td></tr>
       <tr><th>ROS 환경</th><td>ROS1 Noetic, Ubuntu 20.04, x86_64</td></tr>
     </table>
@@ -240,6 +240,8 @@
   <tr><td>2026-07-27</td><td>v0.12</td><td>/safety/estop 판정 개선 — 입력 접점 OR 에 더해 traction 전원 출력(traction_motor_power_on) off 를 함께 반영. 범퍼(모멘터리)를 떼도 PLC STO 래치로 전원이 off 인 동안 estop=true 유지, 리셋 복구 시 false. 범퍼 극성 active_low=false 로 실장비 확정(§3.7).</td></tr>
   <tr><td>2026-07-27</td><td>v0.13</td><td>알려진 이슈(§6) 현행화 — 2번 구동모터 하드웨어 고장으로 수리 의뢰(입고 대기), 2모터 동시 enable/주행 실기 재검증은 수리 후 진행. 리프트 홈잉은 구현 완료로 정정하고, 자동 홈잉은 안전상 기본 off(auto_home_on_start, ~/navifra/param.yaml 로 현장 조정).</td></tr>
   <tr><td>2026-07-27</td><td>v0.14</td><td>통합 자동실행(systemd) 절차 추가(§2.7) — 부팅 시 run_robot.sh 자동 기동, start/stop/restart·로그 명령. §0 요약 패키지명에 bms_driver·lift_driver 보완.</td></tr>
+  <tr><td>2026-07-28</td><td>v0.15</td><td>리프트 알람(에러) 리셋 추가(§3.5, §4.6) — 드라이브 알람비트(ALARM) 감지 시 즉시 정지 후 PID_ALARM_RESET 으로 해제. 자동 재시도(간격·횟수 제한) + 수동 토픽 /lift/reset(Bool). 해제되면 알람 직전 위치이동 자동 재개. 신규 출력 /lift/error(Bool)·/lift/alarm(String), /lift/status 에 알람·재개 정보 추가.</td></tr>
+  <tr><td>2026-07-28</td><td>v0.16</td><td>리프트 리미트 처리 개선(§3.5) — 하부 리미트스위치 상태를 드라이브에서 직접 읽어(/lift/status 의 di=) 홈잉 완료를 판정. 상부는 드라이브 입력이 없어 정지 감지 시 속도지령을 자동 해제 → 상부 도달 시 CTRL_FAIL 알람 없어짐. 홈잉 진단로그(시작위치·5초 진행·이동량) 및 home_timeout_sec 40→120s. 위치 카운터 오차(상단에서 하강 시작 시 오계수) 주의사항 명시.</td></tr>
   <tr><td colspan="3" class="small">(이후 기능 추가 시 이 문서를 계속 갱신)</td></tr>
 </table>
 </div>
@@ -263,7 +265,9 @@
   <tr><td>입력</td><td class="mono">/crevis/charging</td><td class="mono">std_msgs/Bool</td><td>Crevis 충전 릴레이 ON/OFF 요청</td></tr>
   <tr><td>출력</td><td class="mono">/crevis/charge_port_on</td><td class="mono">std_msgs/Bool</td><td>Crevis 충전 릴레이 실제 출력 상태</td></tr>
   <tr><td>입력</td><td class="mono">/lift/command</td><td class="mono">std_msgs/String</td><td>리프트: "up"/"down"/"stop"</td></tr>
+  <tr><td>입력</td><td class="mono">/lift/reset</td><td class="mono">std_msgs/Bool</td><td>리프트 알람 리셋: true</td></tr>
   <tr><td>출력</td><td class="mono">/lift/position</td><td class="mono">std_msgs/Int32</td><td>리프트 위치, 홀 카운트 증분</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/error</td><td class="mono">std_msgs/Bool</td><td>리프트 알람 발생 여부</td></tr>
   <tr><td>출력</td><td class="mono">/safety/input/*</td><td class="mono">std_msgs/Bool</td><td>Safety PLC 물리 입력 raw 상태</td></tr>
   <tr><td>출력</td><td class="mono">/safety/output/*</td><td class="mono">std_msgs/Bool</td><td>Safety PLC 물리 출력 raw 상태</td></tr>
   <tr><td>출력</td><td class="mono">/safety/estop</td><td class="mono">std_msgs/Bool</td><td>하드 비상정지 통합상태: true=비상 활성</td></tr>
@@ -351,8 +355,9 @@ roslaunch safety_io_driver safety_io.launch    # Safety PLC I/O</code></pre>
 
 <h2>2.5 리프트 제어</h2>
 <pre><code>roslaunch lift_driver lift.launch
-  -&gt; /lift/command·/lift/velocity_cmd 구독,
-     /lift/position·/lift/status 발행
+  -&gt; /lift/command·/lift/velocity_cmd·/lift/position_cmd·/lift/inc_position_cmd·
+     /lift/home·/lift/reset 구독,
+     /lift/position·/lift/status·/lift/homed·/lift/error·/lift/alarm 발행
   (포트는 config/lift_driver.yaml 의 port, 기본 /dev/ttyS0)</code></pre>
 
 <h2>2.6 Safety PLC I/O</h2>
@@ -494,28 +499,57 @@ systemctl is-enabled   navifra-robot     # 현재 자동실행 여부</code></pr
   <tr><td>입력</td><td class="mono">/lift/position_cmd</td><td class="mono">std_msgs/Int32</td><td>절대 목표위치[홀카운트] 로 이동 (위치제어, 홈잉 후에만)</td></tr>
   <tr><td>입력</td><td class="mono">/lift/inc_position_cmd</td><td class="mono">std_msgs/Int32</td><td>상대 이동량[홀카운트] (현재위치 + 값)</td></tr>
   <tr><td>입력</td><td class="mono">/lift/home</td><td class="mono">std_msgs/Bool</td><td>true=홈잉 시작(하부 리미트→원점 0), false=중단</td></tr>
+  <tr><td>입력</td><td class="mono">/lift/reset</td><td class="mono">std_msgs/Bool</td><td>true=알람(에러) 리셋 (false=무동작)</td></tr>
   <tr><td>출력</td><td class="mono">/lift/position</td><td class="mono">std_msgs/Int32</td><td>현재 위치(홀 카운트, 증분)</td></tr>
-  <tr><td>출력</td><td class="mono">/lift/status</td><td class="mono">std_msgs/String</td><td>"connected mode=.. homed=.. pos=.. status=.."</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/status</td><td class="mono">std_msgs/String</td><td>"connected mode=.. homed=.. pos=.. status=.. di=.."</td></tr>
   <tr><td>출력</td><td class="mono">/lift/homed</td><td class="mono">std_msgs/Bool</td><td>원점 확립 여부(latched)</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/error</td><td class="mono">std_msgs/Bool</td><td>알람 발생 여부 (true=알람 중)</td></tr>
+  <tr><td>출력</td><td class="mono">/lift/alarm</td><td class="mono">std_msgs/String</td><td>알람 내용(상태비트 디코딩, 알람 중 10Hz)</td></tr>
 </table>
 <ul>
   <li>제어 방식: 속도명령 + 상/하 리미트스위치 자동정지. up=상승, down=하강, stop=정지. (현장 확인: +1000rpm=상승, -1000=하강. 속도는 config up_speed_rpm.)</li>
+  <li><strong>리미트 처리 (실기 확정 2026-07-28) — 상/하가 비대칭입니다</strong>:
+    <ul>
+      <li><strong>하부 리미트</strong>: 드라이브 입력(CTRL #6 DIR)에 리미트스위치가 물려 있어 상태를 읽을 수 있습니다. <code>/lift/status</code> 의 <code>di=..(DIR=0)</code> 이면 하부 리미트 도달(더 하강 불가). <strong>홈잉 완료를 이 신호로 판정</strong>하므로 원점은 항상 물리적 하부 리미트 기준입니다(config <code>use_limit_switch_for_home</code>).</li>
+      <li><strong>상부 리미트</strong>: 드라이브 입력에 물려 있지 않습니다. 기구 끝단에 밀려 정지하며, 이때 속도지령을 계속 유지하면 드라이브가 <code>CTRL_FAIL</code>(속도제어 실패) 알람을 냅니다.</li>
+      <li>그래서 드라이버는 <strong>정지가 감지되면 속도지령을 자동 해제</strong>합니다(config <code>auto_release_on_stop</code>, <code>release_grace_sec</code>/<code>release_stop_sec</code>). 로그: <code>"motion stopped at pos=.. - releasing command"</code>. 이 덕분에 상부 리미트 도달 시 알람이 발생하지 않습니다(실기 확인).</li>
+    </ul>
+  </li>
   <li>위치제어(선택): /lift/position_cmd 로 절대위치, /lift/inc_position_cmd 로 상대이동. 위치는 증분(홀 카운트)이라 전원 재부팅 시 원점 소실 → 전원 사이클마다 /lift/home 로 1회 홈잉(하부 리미트까지 하강 후 원점 0)해야 절대위치가 재현됨. 위치제어 최대속도는 config posi_ctrl_vel_rpm. 수동명령(command/velocity_cmd)은 진행 중 위치이동/홈잉을 취소하고 수동모드로 전환. (config enable_position_control 로 on/off) ※ 진짜 절대엔코더(홈잉 불필요)는 별도 HW 필요(현재 미장착).</li>
   <li>※ 홈잉(homed=1) 전에는 /lift/position_cmd(절대) 는 무시된다(경고 로그). 홈잉 없이 움직이려면 /lift/inc_position_cmd(상대) 또는 수동(up/down/velocity_cmd)을 쓴다. (auto_home_on_start 기본 false)</li>
   <li>홈잉 후 속도 상향: 홈잉은 저속(안전) 유지, 홈잉 완료(homed=1) 후에는 수동 up/down 과 위치제어 이동 속도가 config post_home_speed_scale 배(기본 2배)로 상향됨. (velocity_cmd 는 사용자가 지정한 절대 rpm 이라 스케일 제외.)</li>
-  <li>스트로크(실측): 홈잉 원점 0 ~ 최대높이 7000 홀카운트. 절대위치는 이 범위 내로 지령.</li>
+  <li>스트로크(실측): 홈잉 원점 0 ~ 최대높이 7000 홀카운트. 절대위치는 이 범위 내로 지령. (2026-07-28 재실측: 바닥→상부 = 7031 카운트, 2000rpm 에서 전행정 약 28초)</li>
+  <li class="warn">⚠️ <strong>위치 카운터 오차 — 절대위치 사용 시 주의</strong> (실측 2026-07-28): 상부 끝단에 밀려 정지한 상태에서 하강을 시작하면 첫 수 초간 카운터가 반대로 셉니다(약 +500). 그 결과 전행정 상승→하강 1사이클에서 1000~1800 카운트의 오차가 누적됩니다. → 절대위치(<code>/lift/position_cmd</code>)를 쓰기 전에는 <code>/lift/home</code> 으로 원점을 다시 잡으십시오. 홈잉 원점은 물리적 하부 리미트스위치 기준이라 이 오차와 무관하게 항상 정확합니다.</li>
   <li>연결: RS485. 현재 USB-RS485(FTDI, /dev/ttyUSB0)로 검증됨. 네이티브 COM1(/dev/ttyS0) 사용 시 RS485 A/B 극성만 맞추면 됨(드라이버 동일).</li>
-  <li>에러/상태 피드백: 별도 에러 토픽 없이 /lift/status 문자열에 포함된다.</li>
+  <li>에러/상태 피드백: <code>/lift/error</code>(Bool)·<code>/lift/alarm</code>(String) 로 발행되며, <code>/lift/status</code> 문자열에도 포함된다.</li>
 </ul>
-<p>형식: <code>"&lt;connected|NO_DATA&gt; mode=&lt;MANUAL|POSITION|HOMING&gt; homed=&lt;0|1&gt; pos=&lt;위치&gt; [target=&lt;목표&gt;] status=&lt;OK 또는 알람비트&gt;"</code></p>
+<p>형식: <code>"&lt;connected|NO_DATA&gt; mode=&lt;MANUAL|POSITION|HOMING&gt; homed=&lt;0|1&gt; pos=&lt;위치&gt; [target=&lt;목표&gt;] status=&lt;OK 또는 알람비트&gt; di=&lt;DI비트&gt; [alarm=1 reset_tries=&lt;n&gt; [reset=GAVE_UP]] [resume_pending=..]"</code></p>
 <ul>
   <li>connected = 정상 통신 / NO_DATA = 통신 두절(timeout)</li>
   <li>mode = 현재 제어모드, homed = 원점 확립 여부, target = POSITION 모드일 때 목표위치</li>
   <li>status=OK = 이상 없음</li>
-  <li>status= 뒤 알람비트(공백 구분, 드라이브 상태비트 디코딩): CTRL_FAIL / OVER_VOLT / OVER_TEMP / OVER_LOAD / HALL_FAIL / INV_VEL / STALL</li>
+  <li>status= 뒤 알람비트(공백 구분, 드라이브 상태비트 디코딩): ALARM / CTRL_FAIL / OVER_VOLT / OVER_TEMP / OVER_LOAD / HALL_FAIL / INV_VEL / STALL (ALARM = 알람 유/무 종합비트, 나머지는 원인)</li>
+  <li>di = 드라이브 DI 입력. <code>DIR=0</code> 이면 <strong>하부 리미트 도달</strong>(위 리미트 처리 참조)</li>
+  <li>alarm=1 = 알람 진행 중, reset_tries = 자동 리셋 시도 횟수, reset=GAVE_UP = 자동 재시도 한계 초과(수동 <code>/lift/reset</code> 대기), resume_pending = 알람 해제 후 자동 재개될 동작</li>
 </ul>
-<pre><code>예)  "connected pos=512 status=OVER_LOAD STALL"  (과부하 + 스톨 알람)
-     "NO_DATA pos=510 status=OK"                 (드라이브 응답 없음)</code></pre>
+<pre><code>예)  "connected mode=MANUAL homed=1 pos=0 status=OK di=0x18(DIR=0,START_STOP=1)"   (바닥/하부 리미트, 정상)
+     "connected mode=MANUAL homed=1 pos=512 status=ALARM OVER_LOAD di=0x7c(DIR=1,START_STOP=1) alarm=1 reset_tries=2"
+     "NO_DATA mode=MANUAL homed=0 pos=510 status=OK di=0x00(DIR=0,START_STOP=0)"   (드라이브 응답 없음)</code></pre>
+<h3>알람(에러) 리셋</h3>
+<ol>
+  <li><strong>감지</strong> — 드라이브 상태비트 ALARM(BIT0)이 서면 즉시 정지(속도 0 + 수동모드)하고 <code>/lift/error=true</code>, <code>/lift/alarm=&lt;원인비트&gt;</code> 발행. 진행 중이던 위치이동은 기억해 둔다.</li>
+  <li><strong>리셋</strong> — 드라이브에 알람해제 명령(PID_ALARM_RESET)을 보낸다.
+    <ul>
+      <li>자동: config <code>auto_reset_on_alarm=true</code>(기본). <code>alarm_reset_interval_sec</code>(기본 2초)마다 재시도하고 <code>alarm_reset_max_attempts</code>(기본 5회) 초과 시 포기(무한루프 방지). 포기 후 원인을 제거하고 수동 리셋을 1회 주면 재시도가 다시 활성화된다.</li>
+      <li>수동: <code>rostopic pub -1 /lift/reset std_msgs/Bool "data: true"</code></li>
+      <li class="warn">⚠️ 리셋으로 알람이 풀리면 아래 3)의 자동 재개가 동작하므로 <strong>리프트가 즉시 움직일 수 있습니다.</strong> <code>/lift/status</code> 의 <code>resume_pending</code> 으로 미리 확인할 수 있고, 움직이지 않게 하려면 리셋 전에 <code>/lift/command "stop"</code> 으로 재개를 취소한다.</li>
+    </ul>
+  </li>
+  <li><strong>재개</strong> — 알람이 해제되면 1)에서 기억한 위치이동을 자동으로 이어서 수행한다. 재개 직후 같은 원인으로 다시 알람이 반복되면 <code>alarm_resume_max_cycles</code>(기본 3회)에서 재개를 중단한다.</li>
+  <li><strong>홈잉 중 알람은 실패로 처리</strong> — 정지 지점을 하부 리미트로 오판해 원점을 잡으면 절대위치가 전부 틀어지므로, 원점을 잡지 않고 중단한다(homed 유지). 로그에 위치·이동량이 남는다.</li>
+</ol>
+<p class="small">※ <code>CTRL_FAIL</code>(속도제어 실패)은 "막힌 축에 속도지령을 계속 유지"할 때 발생한다. 드라이버가 정지 감지 시 지령을 자동 해제하므로 정상 운전에서는 발생하지 않는다. 그래도 알람이 뜨면 기구 구속·과부하 등 실제 원인을 점검할 것.</p>
+<p class="small">※ 통신 두절(NO_DATA) 상태에서는 알람 판정·리셋을 하지 않는다(상태값을 신뢰할 수 없으므로).</p>
 
 <h2>3.6 [긴급정지 — 하드웨어 Safety PLC]</h2>
 <p>긴급정지는 Safety PLC(PILZ PNOZmulti, 192.168.100.103) 하드웨어 안전회로가 담당합니다. 비상정지 버튼·범퍼가 눌리면 PLC 안전회로가 모터 전원/STO 를 물리적으로 차단하며, 이는 ROS·PC 와 무관하게 하드웨어 배선만으로 동작합니다(안전인증).</p>
@@ -528,7 +562,7 @@ systemctl is-enabled   navifra-robot     # 현재 자동실행 여부</code></pr
 <p>각 서브시스템이 상태/에러를 ROS 토픽으로 발행하며, 이를 합쳐 알람·에러 피드백을 제공한다:</p>
 <ul>
   <li>구동부 : <code>/motor/error</code> (Bool), <code>/motor/alarm</code> (String) — 드라이브 fault / 피드백 타임아웃</li>
-  <li>리프트 : <code>/lift/status</code> (String) — status=OK 또는 알람비트(OVER_LOAD/STALL 등), NO_DATA</li>
+  <li>리프트 : <code>/lift/error</code> (Bool), <code>/lift/alarm</code> (String), <code>/lift/status</code> (String) — 드라이브 알람(OVER_LOAD/STALL 등) / NO_DATA. 알람 리셋 = <code>/lift/reset</code> (§3.5)</li>
   <li>배터리 : <code>/bms/state.power_supply_health</code>, <code>/bms/state.present</code></li>
   <li>Safety PLC : <code>/safety/input/*</code>, <code>/safety/output/*</code>, <code>/safety/state_all</code>, <code>/safety/connected</code></li>
   <li>긴급정지 : <code>/safety/estop</code> (하드 비상정지 통합상태, §3.7)</li>
@@ -694,9 +728,23 @@ rostopic pub -1 /lift/position_cmd std_msgs/Int32 "data: 5000"
 rostopic pub -1 /lift/inc_position_cmd std_msgs/Int32 "data: 1000"</code></pre>
 <ul>
   <li>위치제어 최대속도 = config posi_ctrl_vel_rpm (0이면 up_speed_rpm, 둘 다 0이면 드라이브 기본 2000rpm).</li>
-  <li>홈잉 완료판정 = 하강 중 위치정지 감지(home_stall_counts/home_stall_sec 로 튜닝).</li>
+  <li>홈잉 완료판정 = <strong>하부 리미트스위치 신호</strong>(DI 의 DIR 비트=0, config <code>use_limit_switch_for_home</code>). 이미 하부 리미트에 있으면 즉시 완료된다. 리미트 신호를 못 쓰는 경우의 폴백 = 하강 중 위치정지 감지(<code>home_stall_counts</code>/<code>home_stall_sec</code>).</li>
+  <li>홈잉 제한시간 = <code>home_timeout_sec</code>(기본 120초). 실측 전행정 하강 = 약 28초(2000rpm).</li>
   <li>카운트↔실거리 환산은 현장 실측으로 별도 확정 필요.</li>
 </ul>
+<div class="warn">[알람 리셋] (§3.5 참조)</div>
+<pre><code>rostopic echo /lift/error       # 알람 발생 시 true
+rostopic echo /lift/alarm       # 알람 원인 (예: "ALARM OVER_LOAD STALL")
+# 알람 유발(예: 기구 구속) 후 자동 동작 확인 — 로그:
+#   "ALARM detected ... stopped" → "PID_ALARM_RESET sent (auto, attempt N)"
+#   → 원인 제거되면 "alarm cleared" → 진행 중이던 위치이동 자동 재개
+# 수동 리셋 (자동 재시도 포기 후 또는 auto_reset_on_alarm=false 일 때):
+rostopic pub -1 /lift/reset std_msgs/Bool "data: true"</code></pre>
+<div class="warn">[리미트 확인]</div>
+<pre><code>rostopic echo /lift/status      # di=0x..(DIR=..,START_STOP=..)
+#  바닥(하부 리미트)  : DIR=0   → 더 하강 불가, 홈잉이 즉시 완료됨
+#  중간/상승 중       : DIR=1
+#  상부 리미트 도달   : 정지 감지로 지령 자동해제 (로그 "motion stopped ... releasing command")</code></pre>
 
 <h2>4.7 긴급정지 검증</h2>
 <p>긴급정지는 하드웨어 Safety PLC 가 담당하며(§3.6), ROS 는 그 상태를 감지만 합니다. 비상버튼/범퍼를 눌러 물리 정지가 걸리는지 확인하고, ROS 통합상태(/safety/estop)는 아래 §4.8 에서 확인합니다. (소프트웨어 /estop 토픽은 제거됨 — v0.11)</p>
@@ -731,7 +779,7 @@ rostopic echo /safety/estop
   <li><strong>구조</strong>: 최상위 키 = 노드 이름(base_controller / motor_driver_node / lift_driver), 그 아래 파라미터. 여기 없는 키는 기본 config 값 그대로.</li>
   <li><strong>편집</strong>: <code>nano ~/navifra/param.yaml</code> → 저장 후 드라이버 재시작. install 재빌드/재배포 불필요.</li>
   <li><strong>생성/보존</strong>: 배포(deploy) 시 파일이 없으면 템플릿에서 생성, 있으면 보존(현장값 유지). 최신 템플릿은 <code>~/navifra/param.default.yaml</code> 로도 갱신됨(새 항목 확인용).</li>
-  <li><strong>현재 노출 항목</strong>: base_controller(wheel_radius/wheel_separation/gear_ratio/swap_lr), motor_driver_node(motor_directions), lift_driver(auto_home_on_start/up_speed_rpm/posi_ctrl_vel_rpm/post_home_speed_scale/in_position_tol). (항목 추가는 저장소 scripts/param.yaml 편집)</li>
+  <li><strong>현재 노출 항목</strong>: base_controller(wheel_radius/wheel_separation/gear_ratio/swap_lr), motor_driver_node(motor_directions), lift_driver(auto_home_on_start/up_speed_rpm/posi_ctrl_vel_rpm/post_home_speed_scale/in_position_tol/use_limit_switch_for_home/auto_release_on_stop/home_timeout_sec/home_stall_counts/home_stall_sec/auto_reset_on_alarm/alarm_reset_interval_sec/alarm_reset_max_attempts/alarm_resume_max_cycles). (항목 추가는 저장소 scripts/param.yaml 편집)</li>
 </ul>
 
 <h2>config/base_controller.yaml (로봇 물리값 — 실측 확정값)</h2>
@@ -791,7 +839,16 @@ rostopic echo /safety/estop
   <tr><td class="mono">home_stall_counts</td><td>위치변화가 이 값 이하면 '정지'로 간주 (5)</td></tr>
   <tr><td class="mono">home_stall_sec</td><td>위 정지가 이 시간 이상 지속되면 홈(하부 리미트) 도달 판정 [s] (1.5)</td></tr>
   <tr><td class="mono">home_min_sec</td><td>홈잉 시작 후 최소 경과시간(스핀업 오검출 방지) [s] (1.0)</td></tr>
-  <tr><td class="mono">home_timeout_sec</td><td>이 시간 내 홈 못 찾으면 중단, NOT homed [s] (40.0)</td></tr>
+  <tr><td class="mono">home_timeout_sec</td><td>이 시간 내 홈 못 찾으면 중단, NOT homed [s] (120.0 — 실측 전행정 하강 28초)</td></tr>
+  <tr><td class="mono">use_limit_switch_for_home</td><td>홈잉 완료를 하부 리미트스위치 신호(DI DIR 비트)로 판정 (true). false=정지감지 추론(구 방식)</td></tr>
+  <tr><td class="mono">limit_di_descend_mask</td><td>하강 허용/하부 리미트 DI 비트 마스크 (0x04 = CTRL #6 DIR)</td></tr>
+  <tr><td class="mono">auto_release_on_stop</td><td>리미트·구속으로 멈추면 속도지령 자동 해제 → 상부 리미트에서 CTRL_FAIL 예방 (true)</td></tr>
+  <tr><td class="mono">release_grace_sec</td><td>속도명령 후 이 시간은 정지판정 유예(스핀업) [s] (2.0)</td></tr>
+  <tr><td class="mono">release_stop_sec</td><td>이 시간 이상 위치변화 없으면 정지로 보고 지령 해제 [s] (1.0)</td></tr>
+  <tr><td class="mono">auto_reset_on_alarm</td><td>알람 감지 시 PID_ALARM_RESET 자동 전송 (true)</td></tr>
+  <tr><td class="mono">alarm_reset_interval_sec</td><td>자동 알람 리셋 재시도 간격 [s] (2.0)</td></tr>
+  <tr><td class="mono">alarm_reset_max_attempts</td><td>연속 자동 리셋 시도 한계, 초과 시 포기(수동 /lift/reset 대기) (5, 0=무제한)</td></tr>
+  <tr><td class="mono">alarm_resume_max_cycles</td><td>알람 해제 후 자동 재개 반복 한계 (3, 0=무제한)</td></tr>
   <tr><td class="mono">in_position_tol</td><td>|목표-현재| 이 값 이하면 위치이동 완료로 간주 [count] (20)</td></tr>
   <tr><td class="mono">auto_home_on_start</td><td>통신 확보 후 부팅/런치 시 1회 자동 홈잉 (기본 false. ~/navifra/param.yaml 로 조정) ⚠️ true면 부팅/런치 시 리프트가 자동으로 하강해 하부 리미트로 감 — 주변 안전 확보</td></tr>
   <tr><td class="mono">post_home_speed_scale</td><td>홈잉 완료 후 수동 up/down·위치이동 속도 배율 (2.0, 1.0=미적용)</td></tr>
