@@ -58,6 +58,7 @@ constexpr uint16_t RPDO1_ID_BASE = 0x200;
 constexpr uint16_t TPDO2_ID_BASE = 0x280;
 constexpr uint16_t RPDO2_ID_BASE = 0x300;
 constexpr uint16_t TPDO3_ID_BASE = 0x380;
+constexpr uint16_t HEARTBEAT_ID_BASE = 0x700;  // 0x700+id: 부트업(1바이트 0x00)/하트비트
 
 // CiA 402 상태 제어를 위한 Controlword 값
 namespace Controlword {
@@ -111,6 +112,12 @@ public:
     //    즉 알람(error_code)만 봐서는 "모터가 꺼졌다"를 알 수 없다 → 복구 판단은 이 상태로.
     bool is_operation_enabled(uint8_t node_id);
 
+    // 드라이브 재부팅(전원 사이클)로 CANopen 통신설정이 날아갔을 때의 복구.
+    // 부트업 프레임 수신 시 자동으로 예약되고, 놓쳤을 때를 대비해 노드 쪽에서
+    // 장시간 피드백 두절로도 예약할 수 있다. 실제 재설정은 reset_motor() 안에서 수행.
+    void request_reinit(uint8_t node_id, const char* reason);
+    bool reinit_pending() const;
+
     // 모든 모터가 OPERATION_ENABLED 에 도달하면 true. 하나라도 실패하면 false
     // (드라이브 FAULT/타임아웃 등). 호출측은 반환값으로 실제 enable 여부를 판단한다.
     bool enable_motor();
@@ -128,8 +135,14 @@ private:
         int32_t feedback_position{0};
         // 마지막으로 속도 피드백(TPDO2)을 수신한 시각 (통신 타임아웃 감지용)
         std::chrono::steady_clock::time_point last_feedback_time{};
+        // 드라이브 재부팅 감지 → CANopen 통신설정 재적용 대기중
+        std::atomic<bool> needs_reinit{false};
+        // 이 시각 전까지는 재설정 요청을 무시한다(재설정이 스스로 유발하는
+        // 부트업·피드백단절이 무한루프가 되는 것을 막음). configure_node() 가 설정.
+        std::chrono::steady_clock::time_point reinit_suppress_until{};
     };
 
+    void configure_node(uint8_t node_id);
     void can_callback(const can_frame& frame);
     void send_velocity_command(uint8_t node_id, float rpm);
 

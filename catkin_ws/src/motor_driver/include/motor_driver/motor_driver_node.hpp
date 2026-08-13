@@ -57,6 +57,9 @@ private:
     double control_frequency_{50.0};
     double cmd_timeout_sec_{1.0}; // 명령 타임아웃 시간 (초)
     double feedback_timeout_sec_{0.5}; // 피드백 미수신 시 MOTOR_FEEDBACK_TIMEOUT 알람 (초)
+    // 이만큼 피드백이 끊기면 드라이브 재부팅(PDO 매핑 소실)으로 보고 CANopen 재설정 예약.
+    // 부트업 프레임을 놓쳤을 때의 폴백이라 알람용보다 훨씬 길게 잡는다.
+    double reinit_feedback_loss_sec_{3.0};
     double fault_reset_interval_sec_{2.0}; // 드라이브 fault 자동 리셋 재시도 최소 간격 (초)
     bool require_traction_enable_{false};   // true면 traction 지령 전까지 구동 금지
     bool use_brake_interlock_{false};       // true면 브레이크 해제 전까지 구동 금지

@@ -40,29 +40,7 @@ void MotorController::init(const std::string& can_device, const std::vector<uint
     }
 
     for (const auto& node_id : node_ids_) {
-        std::cout << "Initializing motor with Node ID: " << static_cast<int>(node_id) << std::endl;
-
-        // 1. NMT Reset Communication
-        can_if_->write(NMT_ID, {NMT_RESET_COMMUNICATION, node_id});
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-        // --- PDO Mapping (모든 구동모터는 속도 제어) ---
-        // RPDO1: Controlword, Mode of operation
-        setup_pdo_mapping(node_id, 0x1400, 0x1600, RPDO1_ID_BASE, {0x60400010, 0x60600008});
-        // RPDO2: Target Velocity (0x60FF)
-        setup_pdo_mapping(node_id, 0x1401, 0x1601, RPDO2_ID_BASE, {0x60FF0020});
-        // TPDO1: Statusword, Mode of operation display
-        setup_pdo_mapping(node_id, 0x1800, 0x1A00, TPDO1_ID_BASE, {0x60410010, 0x60610008});
-        // TPDO2: Velocity actual, Position actual
-        setup_pdo_mapping(node_id, 0x1801, 0x1A01, TPDO2_ID_BASE, {0x606C0020, 0x60640020});
-        // TPDO3: DC link voltage, Current actual, Error code
-        setup_pdo_mapping(node_id, 0x1802, 0x1A02, TPDO3_ID_BASE, {0x60790010, 0x60780010, 0x26010010, 0x26020010});
-
-        // Start Node
-        can_if_->write(NMT_ID, {NMT_START_REMOTE_NODE, node_id});
-        std::this_thread::sleep_for(100ms);
-
-        std::cout << "Motor with Node ID " << static_cast<int>(node_id) << " initialized." << std::endl;
+        configure_node(node_id);
     }
 
     is_running_ = true;
@@ -87,6 +65,88 @@ double MotorController::get_feedback_age_sec(uint8_t node_id) const {
         return age.count();
     }
     return 1e9;  // 해당 모터 상태 없음 → 타임아웃으로 간주
+}
+
+// 노드 1개의 CANopen 통신 설정(NMT 리셋 → PDO 매핑 → NMT start).
+// init() 최초 1회뿐 아니라, 드라이브가 전원 사이클로 재부팅해 매핑이 날아갔을 때
+// reset_motor() 에서 다시 호출된다(→ request_reinit / needs_reinit).
+void MotorController::configure_node(uint8_t node_id) {
+    if (!can_if_) {
+        return;
+    }
+
+    // 재설정 중에는 이 노드발 재요청을 무시한다. 안 그러면 영구 루프가 된다:
+    //  (a) 아래 NMT_RESET_COMMUNICATION 자체가 드라이브의 부트업(0x700+id)을 유발하고
+    //      (실측: NMT 82 01 → 224us 뒤 701#00), 그 부트업이 다시 reinit 을 예약한다.
+    //  (b) PDO 재매핑 ~1.3초 동안 TPDO2 가 멎어 피드백 타임아웃 폴백도 같이 걸린다.
+    // 끝난 뒤 플래그만 지우는 걸로는 못 막는다 — 느린 부트업이 그 뒤에 도착할 수 있다.
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        motor_states_.at(node_id).reinit_suppress_until =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        motor_states_.at(node_id).needs_reinit.store(false);
+        // 캐시된 statusword 무효화 — 재부팅 전 값이 OPERATION_ENABLED 로 남아 있으면
+        // enable_motor() 의 멱등 가드가 "이미 켜져 있다"고 보고 건너뛴다.
+        motor_states_.at(node_id).status.status_flags = 0;
+        // 재부팅 직후 옛 속도지령이 살아있으면 enable 되는 순간 튄다. 반드시 0.
+        motor_states_.at(node_id).atomic_target_velocity_rpm.store(0.0f);
+    }
+
+    std::cout << "Initializing motor with Node ID: " << static_cast<int>(node_id) << std::endl;
+
+    // 1. NMT Reset Communication
+    can_if_->write(NMT_ID, {NMT_RESET_COMMUNICATION, node_id});
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // --- PDO Mapping (모든 구동모터는 속도 제어) ---
+    // RPDO1: Controlword, Mode of operation
+    setup_pdo_mapping(node_id, 0x1400, 0x1600, RPDO1_ID_BASE, {0x60400010, 0x60600008});
+    // RPDO2: Target Velocity (0x60FF)
+    setup_pdo_mapping(node_id, 0x1401, 0x1601, RPDO2_ID_BASE, {0x60FF0020});
+    // TPDO1: Statusword, Mode of operation display
+    setup_pdo_mapping(node_id, 0x1800, 0x1A00, TPDO1_ID_BASE, {0x60410010, 0x60610008});
+    // TPDO2: Velocity actual, Position actual
+    setup_pdo_mapping(node_id, 0x1801, 0x1A01, TPDO2_ID_BASE, {0x606C0020, 0x60640020});
+    // TPDO3: DC link voltage, Current actual, Error code
+    setup_pdo_mapping(node_id, 0x1802, 0x1A02, TPDO3_ID_BASE, {0x60790010, 0x60780010, 0x26010010, 0x26020010});
+
+    // Start Node
+    can_if_->write(NMT_ID, {NMT_START_REMOTE_NODE, node_id});
+    std::this_thread::sleep_for(100ms);
+
+    // 피드백 타임아웃 기준 재설정. 재매핑 동안 TPDO2 가 멎어 있었으므로 이걸 안 하면
+    // reinit 직후 곧바로 MOTOR_FEEDBACK_TIMEOUT 알람이 뜬다. (init() 도 같은 이유로 함)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        motor_states_.at(node_id).last_feedback_time = std::chrono::steady_clock::now();
+    }
+
+    std::cout << "Motor with Node ID " << static_cast<int>(node_id) << " initialized." << std::endl;
+}
+
+// 드라이브 재부팅 감지 등으로 통신 재설정을 예약한다. 억제창 안이면 무시.
+void MotorController::request_reinit(uint8_t node_id, const char* reason) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    auto it = motor_states_.find(node_id);
+    if (it == motor_states_.end()) {
+        return;
+    }
+    if (std::chrono::steady_clock::now() < it->second.reinit_suppress_until) {
+        return;  // 재설정 중 자기 자신이 만든 부트업/피드백단절
+    }
+    if (!it->second.needs_reinit.exchange(true)) {
+        std::cout << "Node " << static_cast<int>(node_id)
+                  << " needs CANopen re-init (" << reason << ")." << std::endl;
+    }
+}
+
+bool MotorController::reinit_pending() const {
+    for (const auto& node_id : node_ids_) {
+        if (motor_states_.at(node_id).needs_reinit.load()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void MotorController::setup_pdo_mapping(uint8_t node_id, uint16_t comm_param_index, uint16_t map_param_index, uint32_t cob_id_base, const std::vector<uint32_t>& mapped_objects)
@@ -171,11 +231,21 @@ float MotorController::get_feedback_velocity(uint8_t node_id) const {
 bool MotorController::reset_motor() {
     bool all_success = true;
 
+    // 재부팅이 감지된 노드는 CANopen 통신설정부터 되살린다. 이걸 건너뛰면 아래
+    // FAULT_RESET/enable 이 전부 RPDO1 로 나가는데, 매핑이 없어 드라이브가 못 받는다.
+    for (const auto& node_id : node_ids_) {
+        if (motor_states_.at(node_id).needs_reinit.load()) {
+            configure_node(node_id);   // 안에서 needs_reinit 을 내리고 억제창을 건다
+        }
+    }
+
     for (const auto& node_id : node_ids_) {
         // 이미 서보 ON 인 모터는 건드리지 않는다. FAULT_RESET(0x80)은 컨트롤워드의
         // enable 비트를 지우므로, 멀쩡한 드라이브에 보내면 OPERATION_ENABLED 에서
         // 튕겨나간다. 복구가 주기적으로 재시도되므로 이 가드가 없으면 한쪽 모터
         // 고장이 정상 모터까지 계속 끊어먹는다.
+        // (방금 reinit 한 노드는 statusword 가 0 으로 무효화돼 여기서 안 걸러진다 —
+        //  래치된 fault 를 안고 부팅했을 수 있으므로 FAULT_RESET 을 꼭 받아야 한다.)
         if (is_operation_enabled(node_id)) {
             continue;
         }
@@ -436,6 +506,18 @@ void MotorController::can_callback(const can_frame& frame) {
     uint16_t function_code = frame.can_id & 0xFF80;
 
     if (motor_states_.find(node_id) == motor_states_.end()) {
+        return;
+    }
+
+    // NMT 부트업(0x700+id, 1바이트 0x00) = 드라이브가 방금 재부팅했다는 뜻.
+    // 전원이 끊겼다 들어오면(SPLC manual&brake-off 등) 드라이브는 공장 통신설정으로
+    // 돌아가 PDO 매핑이 통째로 날아간다 → 속도지령/피드백이 모두 안 통해 주행 불가.
+    // statusword 로는 감지할 수 없다(TPDO1 도 같이 죽어서 옛 값이 그대로 남는다).
+    // ⚠️ status_mutex_ 를 잡기 전에 처리 — request_reinit() 이 같은 뮤텍스를 잡는다.
+    if (function_code == HEARTBEAT_ID_BASE) {
+        if (frame.can_dlc == 1 && frame.data[0] == 0x00) {
+            request_reinit(node_id, "bootup");
+        }
         return;
     }
 

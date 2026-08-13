@@ -10,6 +10,7 @@ MotorDriverNode::MotorDriverNode(ros::NodeHandle& nh, ros::NodeHandle& pnh)
     pnh_.param<double>("control_frequency", control_frequency_, 50.0);
     pnh_.param<double>("cmd_timeout_sec", cmd_timeout_sec_, 1.0);
     pnh_.param<double>("feedback_timeout_sec", feedback_timeout_sec_, 0.5);
+    pnh_.param<double>("reinit_feedback_loss_sec", reinit_feedback_loss_sec_, 3.0);
     pnh_.param<double>("fault_reset_interval_sec", fault_reset_interval_sec_, 2.0);
     pnh_.param<bool>("require_traction_enable", require_traction_enable_, false);
     pnh_.param<bool>("use_brake_interlock", use_brake_interlock_, false);
@@ -229,12 +230,20 @@ void MotorDriverNode::controlLoop(const ros::TimerEvent&)
     // 피드백(TPDO2) 타임아웃 알람 — CAN 통신 두절 등. 통신 문제이므로 fault reset 대상 아님.
     bool feedback_timeout = false;
     for (const auto& id : drive_motor_ids_) {
-        if (controller_->get_feedback_age_sec(id) > feedback_timeout_sec_) {
+        const double age = controller_->get_feedback_age_sec(id);
+        if (age > feedback_timeout_sec_) {
             feedback_timeout = true;
             ROS_WARN_THROTTLE(2.0, "Motor %d feedback timeout (> %.2fs).", id, feedback_timeout_sec_);
             std_msgs::String alarm_msg;
             alarm_msg.data = "[" + std::to_string(id) + "] MOTOR_FEEDBACK_TIMEOUT";
             alarm_pub_.publish(alarm_msg);
+        }
+        // 재부팅 부트업 프레임을 놓쳤을 때의 폴백. 매핑이 날아간 드라이브는 살아있어도
+        // TPDO2 를 영영 안 보내는데, 부트업은 딱 한 번뿐이라 놓치면 영구 미복구가 된다.
+        // 알람용 feedback_timeout_sec_(기본 0.5s)보다 훨씬 길게 잡는다 — 버스 순간
+        // 끊김마다 2.6초짜리 재설정이 도는 건 과하다.
+        if (age > reinit_feedback_loss_sec_) {
+            controller_->request_reinit(id, "feedback lost");
         }
     }
 
@@ -274,8 +283,13 @@ void MotorDriverNode::controlLoop(const ros::TimerEvent&)
     // 동작상 문제는 없지만 reset_motor()/enable_motor() 안의 std::cout 은 throttle 이
     // 없어서 장시간 E-stop 시 로그가 시끄럽다. 거슬리면 재시도 백오프를 넣거나
     // 그 cout 들을 ROS_DEBUG 로 내릴 것.
+
+    // reinit_pending: 드라이브가 재부팅해 PDO 매핑이 날아간 경우. 이때는 피드백이
+    // 끊겨 있는 게 정상 증상이므로 feedback_timeout 배제 규칙을 적용하지 않는다
+    // (재설정이 곧 해법이라서). 나머지 통신두절은 종전대로 리셋 대상이 아니다.
     const bool want_reset =
-        (has_drive_fault || (drives_not_enabled && !feedback_timeout)) &&
+        (has_drive_fault || (drives_not_enabled && !feedback_timeout)
+         || controller_->reinit_pending()) &&
         computeWantEnabled() &&
         !transition_in_progress_.load() &&
         (ros::Time::now() - last_reset_attempt_).toSec() > fault_reset_interval_sec_;
