@@ -249,8 +249,34 @@ void MotorDriverNode::controlLoop(const ros::TimerEvent&)
     //   reset_motor() 는 CAN 상태전이(수 초 블로킹)를 수반하므로 타이머(=발행 루프)를
     //   막지 않도록 별도 스레드에서 수행하고, fault_reset_interval_sec_ 로 재시도를
     //   rate-limit 한다. (그러지 않으면 지속 fault 시 매 주기 블로킹되어 모니터링 토픽이 멎음)
+    // ⚠️ 알람(error_code)만으로는 복구를 못 건다.
+    //   STO 를 누르면 traction 전원이 끊겨 드라이브가 **error_code 0 인 채로**
+    //   SWITCH_ON_DISABLED(statusword 0x4050)로 떨어진다. 리셋 스위치로 전원이
+    //   돌아와도 드라이브는 스스로 서보 ON 으로 복귀하지 않는다(재-enable 시퀀스 필요).
+    //   → has_drive_fault 는 false, /motor/alarm 도 조용 → 예전엔 여기서 아무 것도
+    //     안 해서 노드를 재시작할 때까지 모터가 영영 꺼진 채 남았다.
+    //   그래서 "enable 하고 싶은데 실제로 OPERATION_ENABLED 가 아닌 드라이브가 있으면"
+    //   복구 대상으로 본다. 피드백 두절(CAN 단선 등)은 re-enable 로 해결되지 않으므로 제외.
+    bool drives_not_enabled = false;
+    for (const auto& id : drive_motor_ids_) {
+        if (!controller_->is_operation_enabled(id)) {
+            drives_not_enabled = true;
+        }
+    }
+    // 기동 직후 첫 TPDO2 수신 전에도 한 번 찍힌다(초기 enable 진행 중). 정상이다.
+    if (drives_not_enabled && !feedback_timeout && computeWantEnabled()) {
+        ROS_WARN_THROTTLE(5.0,
+            "Drive not OPERATION_ENABLED (servo OFF after STO/E-stop?). Re-enabling.");
+    }
+
+    // ponytail: E-stop 을 계속 누르고 있으면 피드백은 살아있고 전원만 없으므로
+    // 여기가 fault_reset_interval_sec 마다 계속 재시도한다(매번 전원 없어서 실패).
+    // 동작상 문제는 없지만 reset_motor()/enable_motor() 안의 std::cout 은 throttle 이
+    // 없어서 장시간 E-stop 시 로그가 시끄럽다. 거슬리면 재시도 백오프를 넣거나
+    // 그 cout 들을 ROS_DEBUG 로 내릴 것.
     const bool want_reset =
-        has_drive_fault && computeWantEnabled() &&
+        (has_drive_fault || (drives_not_enabled && !feedback_timeout)) &&
+        computeWantEnabled() &&
         !transition_in_progress_.load() &&
         (ros::Time::now() - last_reset_attempt_).toSec() > fault_reset_interval_sec_;
     if (want_reset && !transition_in_progress_.exchange(true)) {

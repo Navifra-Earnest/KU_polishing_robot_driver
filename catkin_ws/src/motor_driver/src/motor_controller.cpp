@@ -172,6 +172,13 @@ bool MotorController::reset_motor() {
     bool all_success = true;
 
     for (const auto& node_id : node_ids_) {
+        // 이미 서보 ON 인 모터는 건드리지 않는다. FAULT_RESET(0x80)은 컨트롤워드의
+        // enable 비트를 지우므로, 멀쩡한 드라이브에 보내면 OPERATION_ENABLED 에서
+        // 튕겨나간다. 복구가 주기적으로 재시도되므로 이 가드가 없으면 한쪽 모터
+        // 고장이 정상 모터까지 계속 끊어먹는다.
+        if (is_operation_enabled(node_id)) {
+            continue;
+        }
         std::cout << "Resetting motor with Node ID " << static_cast<int>(node_id) << "..." << std::endl;
         change_motor_state(node_id, Controlword::FAULT_RESET, 0);
         std::this_thread::sleep_for(100ms);
@@ -276,6 +283,13 @@ bool MotorController::enable_motor() {
     for (const auto& node_id : node_ids_) {
         futures.push_back(std::async(std::launch::async, [this, node_id]() -> bool {
             const uint8_t mode = 3;  // Velocity Mode
+
+            // 이미 서보 ON 이면 손대지 않는다(멱등). 복구가 주기적으로 재시도되는데
+            // 멀쩡한 드라이브에 SHUTDOWN 부터 다시 보내면 그 모터가 OPERATION_ENABLED
+            // 에서 떨어진다 → 한쪽 고장이 정상 모터까지 반복해서 끊어먹는 문제.
+            if (is_operation_enabled(node_id)) {
+                return true;
+            }
 
             std::cout << "Enabling Motor with Node ID " << static_cast<int>(node_id) << "..." << std::endl;
 
@@ -385,6 +399,15 @@ std::string MotorController::get_kinco_error_message(uint16_t error_code) {
         case 0x0000: return "No error";
         default:     return "Unknown error code";
     }
+}
+
+bool MotorController::is_operation_enabled(uint8_t node_id) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    if (!motor_states_.count(node_id)) {
+        return false;
+    }
+    return get_cia402_state(motor_states_.at(node_id).status.status_flags)
+           == CiA402State::OPERATION_ENABLED;
 }
 
 std::optional<std::string> MotorController::get_alarm(uint8_t node_id) {

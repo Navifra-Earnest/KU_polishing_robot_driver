@@ -105,6 +105,12 @@ public:
     // 알람 발생 시 사람이 읽을 수 있는 메시지를 반환 (없으면 nullopt)
     std::optional<std::string> get_alarm(uint8_t node_id);
 
+    // 드라이브가 실제로 OPERATION_ENABLED(서보 ON)인지.
+    // ⚠️ STO 로 traction 전원이 끊기면 드라이브는 **error_code 없이(=0)** SWITCH_ON_DISABLED
+    //    로 떨어지고, 전원이 돌아와도 스스로 복귀하지 않는다(재-enable 시퀀스 필요).
+    //    즉 알람(error_code)만 봐서는 "모터가 꺼졌다"를 알 수 없다 → 복구 판단은 이 상태로.
+    bool is_operation_enabled(uint8_t node_id);
+
     // 모든 모터가 OPERATION_ENABLED 에 도달하면 true. 하나라도 실패하면 false
     // (드라이브 FAULT/타임아웃 등). 호출측은 반환값으로 실제 enable 여부를 판단한다.
     bool enable_motor();
