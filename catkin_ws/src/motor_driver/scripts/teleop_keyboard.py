@@ -86,7 +86,9 @@ def main():
     pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
 
     linear_speed = float(rospy.get_param('~linear_speed', 0.3))    # [m/s] 전/후진 속도
-    angular_speed = float(rospy.get_param('~angular_speed', 0.5))  # [rad/s] 선회 속도
+    # 0.5 는 체감상 선속도보다 빨라서 0.3 으로 내렸다(2026-08-11 현장 피드백).
+    # 윤거 0.65m 기준 제자리회전 시 바퀴속도 = 0.3*0.325 = 0.0975 m/s (선속도 0.3 의 약 1/3).
+    angular_speed = float(rospy.get_param('~angular_speed', 0.3))  # [rad/s] 선회 속도
     rate = rospy.Rate(10)  # 10Hz 재발행 → base_controller 의 cmd_vel_timeout 안 걸리게 유지
 
     print(BANNER)
